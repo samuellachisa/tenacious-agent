@@ -279,72 +279,83 @@ async def _run_prospect_pipeline(
     tz: str,
 ) -> None:
     """Full prospect pipeline: enrich → qualify → CRM → email."""
+    import traceback
+
     from agent.enrichment import run_enrichment_pipeline
     from agent.hubspot_client import create_or_update_contact, update_contact_stage
     from agent.langfuse_client import log_trace
     from agent.mailersend_client import send_email
     from agent.qualifier import qualify_prospect
 
-    # Step 1: Enrichment
-    log_trace("pipeline_step", {"step": "enrichment_start", "company": company_name})
-    enrichment = await run_enrichment_pipeline(company_name)
+    try:
+        # Step 1: Enrichment
+        log_trace("pipeline_step", {"step": "enrichment_start", "company": company_name})
+        enrichment = await run_enrichment_pipeline(company_name)
+        print(f"[PIPELINE] enrichment done for {company_name}")
 
-    # Step 2: Qualification
-    log_trace("pipeline_step", {"step": "qualification_start", "company": company_name})
-    qualification = qualify_prospect(enrichment)
+        # Step 2: Qualification
+        log_trace("pipeline_step", {"step": "qualification_start", "company": company_name})
+        qualification = qualify_prospect(enrichment)
+        print(f"[PIPELINE] qualification: {qualification.get('segment')} qualified={qualification.get('qualified')}")
 
-    # Step 3: HubSpot contact
-    log_trace("pipeline_step", {"step": "hubspot_upsert", "company": company_name})
-    ai_maturity = enrichment.get("ai_maturity", {})
-    hubspot_props = {
-        "email": contact_email,
-        "firstname": first_name,
-        "lastname": last_name,
-        "company": company_name,
-        "icp_segment": qualification.get("segment") or "not_qualified",
-        "ai_maturity_score": str(ai_maturity.get("score", 0)),
-        "enrichment_timestamp": enrichment.get("enriched_at", ""),
-        "lifecyclestage": "lead",
-        "hs_lead_status": "outbound_sent" if qualification.get("qualified") else "not_qualified",
-    }
-    if phone_number:
-        hubspot_props["phone"] = phone_number
-
-    await create_or_update_contact(hubspot_props)
-
-    if not qualification.get("qualified"):
-        log_trace(
-            "pipeline_not_qualified",
-            {"company": company_name, "reason": qualification.get("reason")},
-        )
-        return
-
-    # Step 4: Send outbound email
-    log_trace("pipeline_step", {"step": "email_send", "company": company_name})
-    subject = _build_email_subject(qualification, company_name)
-    pitch = qualification.get("pitch_language", "")
-    text_body = _build_email_text(first_name, company_name, pitch, qualification)
-    html_body = _build_email_html(first_name, company_name, pitch, qualification)
-
-    email_result = await send_email(
-        to_email=contact_email,
-        subject=subject,
-        text=text_body,
-        html=html_body,
-        reply_to=os.getenv("MAILERSEND_FROM_EMAIL", "outbound@tenacious.consulting"),
-    )
-
-    log_trace(
-        "pipeline_complete",
-        {
+        # Step 3: HubSpot contact
+        log_trace("pipeline_step", {"step": "hubspot_upsert", "company": company_name})
+        ai_maturity = enrichment.get("ai_maturity", {})
+        hubspot_props = {
+            "email": contact_email,
+            "firstname": first_name,
+            "lastname": last_name,
             "company": company_name,
-            "segment": qualification.get("segment"),
-            "confidence": qualification.get("confidence"),
-            "acv_estimate": qualification.get("acv_estimate"),
-            "email_status": email_result.get("status"),
-            "manual_review": qualification.get("manual_review", False),
-        },
-    )
+            "icp_segment": qualification.get("segment") or "not_qualified",
+            "ai_maturity_score": str(ai_maturity.get("score", 0)),
+            "enrichment_timestamp": enrichment.get("enriched_at", ""),
+            "lifecyclestage": "lead",
+            "hs_lead_status": "outbound_sent" if qualification.get("qualified") else "not_qualified",
+        }
+        if phone_number:
+            hubspot_props["phone"] = phone_number
+
+        await create_or_update_contact(hubspot_props)
+        print(f"[PIPELINE] HubSpot upsert done for {contact_email}")
+
+        if not qualification.get("qualified"):
+            log_trace(
+                "pipeline_not_qualified",
+                {"company": company_name, "reason": qualification.get("reason")},
+            )
+            print(f"[PIPELINE] Not qualified: {qualification.get('reason')}")
+            return
+
+        # Step 4: Send outbound email
+        log_trace("pipeline_step", {"step": "email_send", "company": company_name})
+        subject = _build_email_subject(qualification, company_name)
+        pitch = qualification.get("pitch_language", "")
+        text_body = _build_email_text(first_name, company_name, pitch, qualification)
+        html_body = _build_email_html(first_name, company_name, pitch, qualification)
+
+        email_result = await send_email(
+            to_email=contact_email,
+            subject=subject,
+            text=text_body,
+            html=html_body,
+            reply_to=os.getenv("MAILERSEND_FROM_EMAIL", "outbound@tenacious.consulting"),
+        )
+        print(f"[PIPELINE] email status={email_result.get('status')}")
+
+        log_trace(
+            "pipeline_complete",
+            {
+                "company": company_name,
+                "segment": qualification.get("segment"),
+                "confidence": qualification.get("confidence"),
+                "acv_estimate": qualification.get("acv_estimate"),
+                "email_status": email_result.get("status"),
+                "manual_review": qualification.get("manual_review", False),
+            },
+        )
+    except Exception:
+        import traceback
+        print(f"[PIPELINE ERROR] {company_name}:\n{traceback.format_exc()}")
 
 
 async def _handle_reply_pipeline(
@@ -361,99 +372,100 @@ async def _handle_reply_pipeline(
     from agent.mailersend_client import send_email
     from agent.qualifier import qualify_prospect
 
-    # Step 1: Update stage to replied
-    log_trace("reply_pipeline_step", {"step": "stage_update", "email": from_email})
-    await update_contact_stage(from_email, "replied")
+    try:
+        # Step 1: Update stage to replied
+        log_trace("reply_pipeline_step", {"step": "stage_update", "email": from_email})
+        await update_contact_stage(from_email, "replied")
 
-    # Step 2: Enrichment (if company known)
-    enrichment: dict[str, Any] = {}
-    if company_name:
-        from agent.enrichment import run_enrichment_pipeline
+        # Step 2: Enrichment (if company known)
+        enrichment: dict[str, Any] = {}
+        if company_name:
+            from agent.enrichment import run_enrichment_pipeline
+            log_trace("reply_pipeline_step", {"step": "enrichment", "company": company_name})
+            enrichment = await run_enrichment_pipeline(company_name)
+        else:
+            enrichment = {"company": from_email.split("@")[-1].split(".")[0]}
 
-        log_trace("reply_pipeline_step", {"step": "enrichment", "company": company_name})
-        enrichment = await run_enrichment_pipeline(company_name)
-    else:
-        enrichment = {"company": from_email.split("@")[-1].split(".")[0]}
+        # Step 3: Qualify
+        log_trace("reply_pipeline_step", {"step": "qualification", "email": from_email})
+        qualification = qualify_prospect(enrichment)
+        print(f"[REPLY PIPELINE] qualification: {qualification.get('segment')} qualified={qualification.get('qualified')}")
 
-    # Step 3: Qualify
-    log_trace("reply_pipeline_step", {"step": "qualification", "email": from_email})
-    qualification = qualify_prospect(enrichment)
+        if not qualification.get("qualified"):
+            log_trace("reply_pipeline_not_qualified", {"email": from_email, "reason": qualification.get("reason")})
+            print(f"[REPLY PIPELINE] Not qualified: {qualification.get('reason')}")
+            return
 
-    if not qualification.get("qualified"):
-        log_trace(
-            "reply_pipeline_not_qualified",
-            {"email": from_email, "reason": qualification.get("reason")},
-        )
-        return
+        # Step 4: Find Cal.com slot + book
+        log_trace("reply_pipeline_step", {"step": "cal_booking", "email": from_email})
+        slot = await find_available_slot(days_ahead=7)
+        print(f"[REPLY PIPELINE] slot found: {slot}")
+        if not slot:
+            log_trace("reply_pipeline_no_slot", {"email": from_email})
+            return
 
-    # Step 4: Find Cal.com slot + book
-    log_trace("reply_pipeline_step", {"step": "cal_booking", "email": from_email})
-    slot = await find_available_slot(days_ahead=7)
-    if not slot:
-        log_trace("reply_pipeline_no_slot", {"email": from_email})
-        return
+        name_parts = from_name.split(" ", 1) if from_name else ["", ""]
+        first_name = name_parts[0] or "there"
 
-    name_parts = from_name.split(" ", 1) if from_name else ["", ""]
-    first_name = name_parts[0] or "there"
-
-    booking = await book_discovery_call(
-        name=from_name or from_email,
-        email=from_email,
-        slot=slot,
-        timezone="UTC",
-    )
-
-    # Step 5: Update HubSpot stage to call_booked
-    await update_contact_stage(from_email, "call_booked")
-
-    # Step 6: Send confirmation email
-    log_trace("reply_pipeline_step", {"step": "confirmation_email", "email": from_email})
-    slot_friendly = _format_slot(slot)
-    confirm_text = (
-        f"Hi {first_name},\n\n"
-        f"Thanks for getting back to us. Your discovery call with Tenacious Consulting "
-        f"is confirmed for {slot_friendly}.\n\n"
-        f"We'll send a calendar invite to {from_email} shortly.\n\n"
-        f"Looking forward to speaking with you.\n\n"
-        f"Best,\nTenacious Consulting Team"
-    )
-    confirm_html = (
-        f"<p>Hi {first_name},</p>"
-        f"<p>Thanks for getting back to us. Your discovery call with "
-        f"<strong>Tenacious Consulting</strong> is confirmed for "
-        f"<strong>{slot_friendly}</strong>.</p>"
-        f"<p>We'll send a calendar invite to {from_email} shortly.</p>"
-        f"<p>Looking forward to speaking with you.</p>"
-        f"<p>Best,<br>Tenacious Consulting Team</p>"
-    )
-
-    await send_email(
-        to_email=from_email,
-        subject="Your Discovery Call is Confirmed — Tenacious Consulting",
-        text=confirm_text,
-        html=confirm_html,
-    )
-
-    # Step 7: SMS if phone available (warm lead)
-    if phone_number:
-        from agent.sms_client import send_scheduling_sms
-
-        await send_scheduling_sms(
-            to_number=phone_number,
-            prospect_name=first_name,
+        booking = await book_discovery_call(
+            name=from_name or from_email,
+            email=from_email,
             slot=slot,
+            timezone="UTC",
+        )
+        print(f"[REPLY PIPELINE] cal booking status={booking.get('status')} error={booking.get('error')}")
+
+        # Step 5: Update HubSpot stage to call_booked
+        await update_contact_stage(from_email, "call_booked")
+
+        # Step 6: Send confirmation email
+        log_trace("reply_pipeline_step", {"step": "confirmation_email", "email": from_email})
+        slot_friendly = _format_slot(slot)
+        confirm_text = (
+            f"Hi {first_name},\n\n"
+            f"Thanks for getting back to us. Your discovery call with Tenacious Consulting "
+            f"is confirmed for {slot_friendly}.\n\n"
+            f"We'll send a calendar invite to {from_email} shortly.\n\n"
+            f"Looking forward to speaking with you.\n\n"
+            f"Best,\nTenacious Consulting Team"
+        )
+        confirm_html = (
+            f"<p>Hi {first_name},</p>"
+            f"<p>Thanks for getting back to us. Your discovery call with "
+            f"<strong>Tenacious Consulting</strong> is confirmed for "
+            f"<strong>{slot_friendly}</strong>.</p>"
+            f"<p>We'll send a calendar invite to {from_email} shortly.</p>"
+            f"<p>Looking forward to speaking with you.</p>"
+            f"<p>Best,<br>Tenacious Consulting Team</p>"
         )
 
-    log_trace(
-        "reply_pipeline_complete",
-        {
-            "email": from_email,
-            "company": company_name,
-            "slot": slot,
-            "booking_status": booking.get("status"),
-            "segment": qualification.get("segment"),
-        },
-    )
+        await send_email(
+            to_email=from_email,
+            subject="Your Discovery Call is Confirmed — Tenacious Consulting",
+            text=confirm_text,
+            html=confirm_html,
+        )
+
+        # Step 7: SMS if phone available (warm lead)
+        if phone_number:
+            from agent.sms_client import send_scheduling_sms
+            await send_scheduling_sms(to_number=phone_number, prospect_name=first_name, slot=slot)
+
+        log_trace(
+            "reply_pipeline_complete",
+            {
+                "email": from_email,
+                "company": company_name,
+                "slot": slot,
+                "booking_status": booking.get("status"),
+                "segment": qualification.get("segment"),
+            },
+        )
+        print(f"[REPLY PIPELINE] complete for {from_email}")
+
+    except Exception:
+        import traceback
+        print(f"[REPLY PIPELINE ERROR] {from_email}:\n{traceback.format_exc()}")
 
 
 async def _handle_sms_scheduling(from_number: str, text: str) -> None:
@@ -461,35 +473,42 @@ async def _handle_sms_scheduling(from_number: str, text: str) -> None:
     from agent.langfuse_client import log_trace
     from agent.sms_client import send_sms
 
-    text_lower = text.lower()
-    log_trace("sms_scheduling_received", {"from": from_number, "text": text[:100]})
+    try:
+        text_lower = text.lower()
+        log_trace("sms_scheduling_received", {"from": from_number, "text": text[:100]})
+        print(f"[SMS] received from={from_number} text='{text[:60]}'")
 
-    # Parse scheduling keywords
-    if any(kw in text_lower for kw in ["schedule", "book", "call", "meeting", "yes", "confirm"]):
-        from agent.calcom_client import find_available_slot
+        # Parse scheduling keywords
+        if any(kw in text_lower for kw in ["schedule", "book", "call", "meeting", "yes", "confirm"]):
+            from agent.calcom_client import find_available_slot
 
-        slot = await find_available_slot(days_ahead=5)
-        slot_friendly = _format_slot(slot) if slot else "soon"
+            slot = await find_available_slot(days_ahead=5)
+            slot_friendly = _format_slot(slot) if slot else "soon"
 
-        response_msg = (
-            f"Great! Your discovery call with Tenacious Consulting is being scheduled "
-            f"for {slot_friendly}. You'll receive a calendar invite by email shortly."
-        )
-        log_trace("sms_scheduling_intent_matched", {"from": from_number, "slot": slot})
-    elif any(kw in text_lower for kw in ["stop", "unsubscribe", "opt out", "remove"]):
-        response_msg = (
-            "You've been unsubscribed from Tenacious Consulting SMS. "
-            "Reply START to re-subscribe."
-        )
-        log_trace("sms_opt_out", {"from": from_number})
-    else:
-        response_msg = (
-            "Hi, this is Tenacious Consulting. Reply SCHEDULE to book a discovery call "
-            "or STOP to opt out."
-        )
-        log_trace("sms_unrecognised", {"from": from_number, "text": text[:100]})
+            response_msg = (
+                f"Great! Your discovery call with Tenacious Consulting is being scheduled "
+                f"for {slot_friendly}. You'll receive a calendar invite by email shortly."
+            )
+            log_trace("sms_scheduling_intent_matched", {"from": from_number, "slot": slot})
+        elif any(kw in text_lower for kw in ["stop", "unsubscribe", "opt out", "remove"]):
+            response_msg = (
+                "You've been unsubscribed from Tenacious Consulting SMS. "
+                "Reply START to re-subscribe."
+            )
+            log_trace("sms_opt_out", {"from": from_number})
+        else:
+            response_msg = (
+                "Hi, this is Tenacious Consulting. Reply SCHEDULE to book a discovery call "
+                "or STOP to opt out."
+            )
+            log_trace("sms_unrecognised", {"from": from_number, "text": text[:100]})
 
-    await send_sms(from_number, response_msg)
+        result = await send_sms(from_number, response_msg)
+        print(f"[SMS] send result={result.get('status')} error={result.get('error', '')}")
+
+    except Exception:
+        import traceback
+        print(f"[SMS ERROR] {from_number}:\n{traceback.format_exc()}")
 
 
 async def _handle_cal_booking(payload: dict[str, Any]) -> None:

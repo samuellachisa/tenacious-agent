@@ -40,24 +40,24 @@ RESULTS_FILE = Path(__file__).parent / "e2e_test_results.json"
 
 SYNTHETIC_PROSPECT = {
     "company_name": "DataFlow Technologies",
-    "contact_email": "jordan.lee@dataflow.tech",
-    "contact_first_name": "Jordan",
-    "contact_last_name": "Lee",
-    "phone_number": "+15550001234",
+    "contact_email": "iamsamuellachisa@gmail.com",
+    "contact_first_name": "SAMUEL",
+    "contact_last_name": "LACHISA",
+    "phone_number": "+251923393204",
     "timezone": "America/Los_Angeles",
 }
 
 SYNTHETIC_REPLY = {
-    "from_email": "jordan.lee@dataflow.tech",
-    "from_name": "Jordan Lee",
+    "from_email": "iamsamuellachisa@gmail.com",
+    "from_name": "ABEBE BIKILA",
     "company_name": "DataFlow Technologies",
     "message_preview": "Hi, thanks for reaching out. I'd be happy to learn more.",
-    "phone_number": "+15550001234",
+    "phone_number": "+251923393204",
 }
 
 SYNTHETIC_SMS = {
-    "from_number": "+15550001234",
-    "to_number": "+15629",
+    "from_number": "+251923393204",
+    "to_number": "+251923393204",
     "text": "Yes, I'd like to schedule a call",
     "date": datetime.now(timezone.utc).isoformat(),
 }
@@ -70,8 +70,8 @@ SYNTHETIC_CAL_BOOKING = {
         "endTime": "2026-04-29T10:30:00Z",
         "attendees": [
             {
-                "name": "Jordan Lee",
-                "email": "jordan.lee@dataflow.tech",
+                "name": "CHALA BIKILA",
+                "email": "iamsamuellachisa@gmail.com",
                 "timeZone": "America/Los_Angeles",
             }
         ],
@@ -166,7 +166,7 @@ async def run_e2e_tests() -> dict[str, Any]:
             expected_status=200,
             assertions=[
                 lambda r: r.json().get("received") is True,
-                lambda r: r.json().get("from_email") == "jordan.lee@dataflow.tech",
+                lambda r: r.json().get("from_email") == "iamsamuellachisa@gmail.com",
                 lambda r: r.json().get("pipeline") == "queued",
             ],
             assertion_labels=[
@@ -194,7 +194,7 @@ async def run_e2e_tests() -> dict[str, Any]:
             expected_status=200,
             assertions=[
                 lambda r: r.json().get("received") is True,
-                lambda r: r.json().get("from_number") == "+15550001234",
+                lambda r: r.json().get("from_number") == "+251923393204",
                 lambda r: r.json().get("action") == "scheduling_queued",
             ],
             assertion_labels=[

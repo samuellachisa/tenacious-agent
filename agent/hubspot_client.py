@@ -1,5 +1,5 @@
 """
-HubSpot CRM client — contacts and deals.
+HubSpot CRM client — contacts and deals. FIXED VERSION.
 All calls use Bearer token from HUBSPOT_ACCESS_TOKEN.
 All calls are logged to Langfuse.
 """
@@ -19,14 +19,16 @@ load_dotenv()
 
 HUBSPOT_BASE = "https://api.hubapi.com"
 
-# Lifecycle stage progression order
-STAGE_ORDER = [
-    "outbound_sent",
-    "email_opened",
-    "replied",
-    "call_booked",
-    "proposal_sent",
-]
+# Internal stage → valid HubSpot hs_lead_status values
+STAGE_TO_HS_STATUS = {
+    "outbound_sent": "NEW",
+    "email_opened": "OPEN",
+    "replied": "CONNECTED",
+    "call_booked": "IN_PROGRESS",
+    "proposal_sent": "OPEN_DEAL",
+}
+
+STAGE_ORDER = list(STAGE_TO_HS_STATUS.keys())
 
 
 def _headers() -> dict[str, str]:
@@ -53,7 +55,7 @@ async def create_or_update_contact(properties: dict[str, Any]) -> dict[str, Any]
         result["operation"] = "updated"
         log_trace(
             "hubspot_contact_updated",
-            {"email": email, "contact_id": contact_id, "properties": properties},
+            {"email": email, "contact_id": contact_id},
         )
         return result
 
@@ -61,7 +63,7 @@ async def create_or_update_contact(properties: dict[str, Any]) -> dict[str, Any]
     result["operation"] = "created"
     log_trace(
         "hubspot_contact_created",
-        {"email": email, "properties": properties},
+        {"email": email},
     )
     return result
 
@@ -117,7 +119,7 @@ async def update_contact(
             data = response.json()
             log_trace(
                 "hubspot_update_contact_success",
-                {"contact_id": contact_id, "properties": properties},
+                {"contact_id": contact_id},
             )
             return data
 
@@ -163,6 +165,7 @@ async def get_contact_by_email(email: str) -> dict[str, Any] | None:
             "hs_lead_status",
             "icp_segment",
             "ai_maturity_score",
+            "enrichment_timestamp",
         ],
         "limit": 1,
     }
@@ -188,25 +191,30 @@ async def get_contact_by_email(email: str) -> dict[str, Any] | None:
 
 async def update_contact_stage(email: str, stage: str) -> dict[str, Any]:
     """
-    Advance a contact's lifecycle stage.
-    Valid stages: outbound_sent → email_opened → replied → call_booked → proposal_sent
+    Advance a contact lifecycle stage.
+    Valid internal stages:
+      outbound_sent → email_opened → replied → call_booked → proposal_sent
+    These are mapped to valid HubSpot hs_lead_status values.
     """
     if stage not in STAGE_ORDER:
         return {"status": "error", "error": f"Unknown stage: {stage}"}
 
+    hs_status = STAGE_TO_HS_STATUS[stage]
+
     contact = await get_contact_by_email(email)
     if not contact:
-        # Create a minimal contact record if it doesn't exist yet
+        # Create minimal contact if not found
         contact = await create_contact(
             {
                 "email": email,
                 "lifecyclestage": "lead",
-                "hs_lead_status": stage,
+                "hs_lead_status": hs_status,
+                "enrichment_timestamp": datetime.now(timezone.utc).isoformat(),
             }
         )
         log_trace(
             "hubspot_stage_contact_created",
-            {"email": email, "stage": stage},
+            {"email": email, "stage": stage, "hs_status": hs_status},
         )
         return contact
 
@@ -214,13 +222,18 @@ async def update_contact_stage(email: str, stage: str) -> dict[str, Any]:
     result = await update_contact(
         contact_id,
         {
-            "hs_lead_status": stage,
+            "hs_lead_status": hs_status,
             "enrichment_timestamp": datetime.now(timezone.utc).isoformat(),
         },
     )
     log_trace(
         "hubspot_stage_updated",
-        {"email": email, "contact_id": contact_id, "stage": stage},
+        {
+            "email": email,
+            "contact_id": contact_id,
+            "stage": stage,
+            "hs_status": hs_status,
+        },
     )
     return result
 
@@ -233,7 +246,7 @@ async def create_deal(
 ) -> dict[str, Any]:
     """
     Create a HubSpot deal linked to a contact.
-    Deal stage is set to 'appointmentscheduled' (discovery call booked).
+    Deal stage is set to appointmentscheduled (discovery call booked).
     """
     deal_payload = {
         "properties": {
@@ -242,13 +255,11 @@ async def create_deal(
             "pipeline": "default",
             "amount": str(acv_estimate),
             "closedate": _close_date_90_days(),
-            "icp_segment": segment,
         }
     }
 
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
-            # Create the deal
             deal_response = await client.post(
                 f"{HUBSPOT_BASE}/crm/v3/objects/deals",
                 json=deal_payload,
@@ -304,6 +315,74 @@ async def create_deal(
         return error
 
 
+async def setup_custom_properties() -> None:
+    """
+    Create custom contact and deal properties required by the pipeline.
+    Run this once before using the CRM client.
+    Safe to run multiple times — skips already-existing properties.
+    """
+    contact_props = [
+        {
+            "name": "icp_segment",
+            "label": "ICP Segment",
+            "type": "string",
+            "fieldType": "text",
+            "groupName": "contactinformation",
+        },
+        {
+            "name": "ai_maturity_score",
+            "label": "AI Maturity Score",
+            "type": "string",
+            "fieldType": "text",
+            "groupName": "contactinformation",
+        },
+        {
+            "name": "enrichment_timestamp",
+            "label": "Enrichment Timestamp",
+            "type": "string",
+            "fieldType": "text",
+            "groupName": "contactinformation",
+        },
+    ]
+
+    deal_props = [
+        {
+            "name": "icp_segment",
+            "label": "ICP Segment",
+            "type": "string",
+            "fieldType": "text",
+            "groupName": "dealinformation",
+        },
+    ]
+
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        for prop in contact_props:
+            r = await client.post(
+                f"{HUBSPOT_BASE}/crm/v3/properties/contacts",
+                headers=_headers(),
+                json=prop,
+            )
+            if r.status_code in (200, 201):
+                print(f"[HUBSPOT SETUP] Created contact property: {prop['name']}")
+            elif r.status_code == 409:
+                print(f"[HUBSPOT SETUP] Already exists: {prop['name']}")
+            else:
+                print(f"[HUBSPOT SETUP] Error {prop['name']}: {r.status_code}")
+
+        for prop in deal_props:
+            r = await client.post(
+                f"{HUBSPOT_BASE}/crm/v3/properties/deals",
+                headers=_headers(),
+                json=prop,
+            )
+            if r.status_code in (200, 201):
+                print(f"[HUBSPOT SETUP] Created deal property: {prop['name']}")
+            elif r.status_code == 409:
+                print(f"[HUBSPOT SETUP] Already exists: {prop['name']}")
+            else:
+                print(f"[HUBSPOT SETUP] Error {prop['name']}: {r.status_code}")
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -314,7 +393,15 @@ def _sanitise_properties(props: dict[str, Any]) -> dict[str, Any]:
 
 
 def _close_date_90_days() -> str:
-    """Return a close date 90 days from now in milliseconds epoch (HubSpot format)."""
+    """Return close date 90 days from now in milliseconds epoch (HubSpot format)."""
     import time
-
     return str(int((time.time() + 90 * 86400) * 1000))
+
+
+# ---------------------------------------------------------------------------
+# Run setup when executed directly
+# ---------------------------------------------------------------------------
+
+if __name__ == "__main__":
+    import asyncio
+    asyncio.run(setup_custom_properties())
