@@ -31,7 +31,7 @@ from typing import Any
 
 import httpx
 
-BASE_URL = "http://localhost:8000"
+BASE_URL = "https://tenacious-agent.onrender.com"
 RESULTS_FILE = Path(__file__).parent / "e2e_test_results.json"
 
 # ---------------------------------------------------------------------------
@@ -178,8 +178,8 @@ async def run_e2e_tests() -> dict[str, Any]:
         results["steps"].append(step)
         _tally(results, step)
 
-        print("  Waiting 5s for reply pipeline tasks...")
-        await asyncio.sleep(5)
+        print("  Waiting 15s for reply pipeline tasks...")
+        await asyncio.sleep(15)
 
         # ------------------------------------------------------------------
         # Step 4: POST /webhook/sms
