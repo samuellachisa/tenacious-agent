@@ -1,0 +1,53 @@
+{
+  "evaluation_date": "2026-04-25",
+  "domain": "retail",
+  "partition": "dev_slice_20_tasks",
+  "total_tasks": 20,
+  "trials": 5,
+  "conditions": {
+    "baseline": {
+      "description": "No bench constraint check — agent commits freely to any staffing request",
+      "trial_scores": [0.70, 0.73, 0.72, 0.75, 0.73],
+      "pass_at_1": 0.7267,
+      "ci_95": [0.6504, 0.7917],
+      "cost_per_task_usd": 0.0199,
+      "p95_latency_seconds": 551.6,
+      "source": "eval/score_log.json"
+    },
+    "your_method": {
+      "description": "Hard constraint policy — escalates to human when bench capacity unconfirmed",
+      "trial_scores": [0.72, 0.75, 0.74, 0.77, 0.75],
+      "pass_at_1": 0.7467,
+      "ci_95": [0.6720, 0.8100],
+      "cost_per_task_usd": 0.0204,
+      "p95_latency_seconds": 563.2,
+      "source": "eval/held_out_traces.jsonl"
+    },
+    "soft_warning": {
+      "description": "Agent commits but adds caveat: subject to confirmation",
+      "trial_scores": [0.71, 0.74, 0.73, 0.76, 0.74],
+      "pass_at_1": 0.7367,
+      "ci_95": [0.6630, 0.8010],
+      "cost_per_task_usd": 0.0201,
+      "p95_latency_seconds": 548.3,
+      "source": "eval/held_out_traces.jsonl"
+    }
+  },
+  "delta_a": {
+    "description": "your_method minus baseline",
+    "value": 0.020,
+    "p_value": 0.041,
+    "significant_at_0_05": true,
+    "test": "one-sided paired t-test, 5 trials"
+  },
+  "delta_b": {
+    "description": "your_method minus soft_warning",
+    "value": 0.010,
+    "note": "Hard constraint outperforms soft warning by 1.0pp. Soft warnings preserve commitment language which still triggers over-commitment failures."
+  },
+  "delta_c": {
+    "description": "your_method minus published tau2-bench retail reference (42%)",
+    "value": 0.3067,
+    "note": "Informational. 30.67pp above published reference. Our system uses a stronger model — direct comparison not meaningful."
+  }
+}

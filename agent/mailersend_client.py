@@ -1,26 +1,23 @@
 """
 MailerSend email client with kill-switch support.
-When OUTBOUND_ENABLED=false all sends are routed to a local sink.
+When TENACIOUS_OUTBOUND_ENABLED=false or OUTBOUND_ENABLED=false, all sends are routed to a local sink.
 """
 
 from __future__ import annotations
 
-import os
 from datetime import datetime, timezone
 from typing import Any
 
 import httpx
-from dotenv import load_dotenv
 
+from agent.env_utils import outbound_enabled
 from agent.langfuse_client import log_trace
-
-load_dotenv()
 
 MAILERSEND_API_URL = "https://api.mailersend.com/v1/email"
 
 
 def _outbound_enabled() -> bool:
-    return os.getenv("OUTBOUND_ENABLED", "false").lower() == "true"
+    return outbound_enabled()
 
 
 async def send_email(

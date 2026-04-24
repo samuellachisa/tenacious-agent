@@ -53,7 +53,7 @@ Data Sources:
 
 ## Kill Switch
 
-`OUTBOUND_ENABLED` in `.env` controls all live outbound.
+`TENACIOUS_OUTBOUND_ENABLED` in `.env` controls all live outbound. `OUTBOUND_ENABLED` is also supported for compatibility.
 
 | Value   | Behaviour                                                        |
 |---------|------------------------------------------------------------------|
@@ -62,6 +62,8 @@ Data Sources:
 
 **Default is `false`.** This is mandatory per challenge data policy and must remain
 `false` during evaluation. Set to `true` only when ready for live outbound.
+
+- Verify the outbound gate before starting the agent: `infra/smoke_test.sh`
 
 ---
 

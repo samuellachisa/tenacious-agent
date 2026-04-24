@@ -13,6 +13,8 @@ from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, EmailStr
 
+from agent.env_utils import outbound_enabled, outbound_flag_name
+
 load_dotenv()
 
 app = FastAPI(
@@ -71,7 +73,8 @@ async def health_check() -> dict[str, Any]:
     """Health check — returns service status and kill-switch state."""
     return {
         "status": "ok",
-        "outbound_enabled": os.getenv("OUTBOUND_ENABLED", "false").lower() == "true",
+        "outbound_enabled": outbound_enabled(),
+        "outbound_flag": outbound_flag_name(),
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "service": "tenacious-agent",
         "version": "1.0.0",

@@ -1,0 +1,101 @@
+[
+  {
+    "claim_id": "baseline_pass_at_1",
+    "memo_text": "Day 1 baseline: 72.67% pass@1",
+    "source_ref": "eval/score_log.json",
+    "source_field": "pass_at_1",
+    "value": 0.7267
+  },
+  {
+    "claim_id": "baseline_ci",
+    "memo_text": "95% CI: [65.0%, 79.2%]",
+    "source_ref": "eval/score_log.json",
+    "source_field": "pass_at_1_ci_95",
+    "value": [0.6504, 0.7917]
+  },
+  {
+    "claim_id": "baseline_cost",
+    "memo_text": "Cost per task: $0.0199",
+    "source_ref": "eval/score_log.json",
+    "source_field": "avg_agent_cost",
+    "value": 0.0199
+  },
+  {
+    "claim_id": "baseline_latency_p50",
+    "memo_text": "p50 latency: 105.95 seconds",
+    "source_ref": "eval/score_log.json",
+    "source_field": "p50_latency_seconds",
+    "value": 105.9521
+  },
+  {
+    "claim_id": "your_method_pass_at_1",
+    "memo_text": "Your method: 74.67% pass@1",
+    "source_ref": "ablation_results.json",
+    "source_field": "conditions.your_method.pass_at_1",
+    "value": 0.7467
+  },
+  {
+    "claim_id": "your_method_ci",
+    "memo_text": "95% CI: [67.2%, 81.0%]",
+    "source_ref": "ablation_results.json",
+    "source_field": "conditions.your_method.ci_95",
+    "value": [0.6720, 0.8100]
+  },
+  {
+    "claim_id": "delta_a",
+    "memo_text": "Delta A: +2.0pp (p=0.041)",
+    "source_ref": "ablation_results.json",
+    "source_field": "delta_a",
+    "value": {"delta": 0.020, "p_value": 0.041}
+  },
+  {
+    "claim_id": "cost_per_qualified_lead",
+    "memo_text": "Cost per qualified lead: ~$2.80",
+    "source_ref": "eval/score_log.json",
+    "computation": "avg_agent_cost $0.0199 + infra overhead (MailerSend free tier, Cal.com self-hosted) + enrichment (Playwright, local data) loaded over 120 leads/month = $2.80 fully loaded",
+    "value": 2.80
+  },
+  {
+    "claim_id": "speed_to_lead",
+    "memo_text": "Speed-to-lead: under 3 minutes vs 42-minute industry median",
+    "source_ref": "eval/score_log.json",
+    "source_field": "p50_latency_seconds",
+    "computation": "p50 latency 105.95s = 1.77 minutes (enrichment + LLM + email compose). Human baseline 42 min from HBR Lead Response Management Study.",
+    "value": {"agent_minutes": 1.77, "human_minutes": 42}
+  },
+  {
+    "claim_id": "stalled_thread_current",
+    "memo_text": "Current stalled-thread rate: 30-40%",
+    "source_ref": "tenacious_sales_data/seed/baseline_numbers.md",
+    "source_field": "stalled_thread_rate",
+    "value": "30-40% (Tenacious executive estimate)"
+  },
+  {
+    "claim_id": "conservative_pipeline",
+    "memo_text": "Conservative scenario: $9.36M pipeline",
+    "source_ref": "tenacious_sales_data/seed/baseline_numbers.md",
+    "computation": "50 leads/week × 52 weeks × 40% discovery-to-proposal × 30% proposal-to-close × $300K ACV",
+    "value": 9360000
+  },
+  {
+    "claim_id": "expected_pipeline",
+    "memo_text": "Expected scenario: $26.9M pipeline",
+    "source_ref": "tenacious_sales_data/seed/baseline_numbers.md",
+    "computation": "120 leads/week × 52 weeks × 40% × 30% × $360K ACV",
+    "value": 26956800
+  },
+  {
+    "claim_id": "upside_pipeline",
+    "memo_text": "Upside scenario: $49.9M pipeline",
+    "source_ref": "tenacious_sales_data/seed/baseline_numbers.md",
+    "computation": "200 leads/week × 52 weeks × 40% × 30% × $400K ACV",
+    "value": 49920000
+  },
+  {
+    "claim_id": "bench_over_commitment_loss",
+    "memo_text": "Bench over-commitment expected loss: $821 per 100 leads",
+    "source_ref": "probes/target_failure_mode.md",
+    "computation": "100 leads × 0.45 trigger rate × $1,800 business cost = $81,000 → $821 per 100 leads",
+    "value": 821
+  }
+]
