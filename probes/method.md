@@ -139,3 +139,22 @@ Result: Delta A positive with p < 0.05 ✅
 - BENCH_UTILIZATION_THRESHOLD: 0.75 (tested 0.50, 0.75, 0.90 — 0.75 best balance)
 - Bench summary TTL: 7 days (updated weekly by delivery team)
 - Escalation cooldown: 48 hours (no re-escalation within same thread)
+
+## Monitoring
+
+Use `probes/probe_monitor.py` to track trigger rates over time:
+
+```bash
+# Log probe results after each evaluation
+python probes/probe_monitor.py log \
+  --run-id "2026-04-25-post-fix" \
+  --results eval/probe_results.json
+
+# Generate trend visualization
+python probes/probe_monitor.py report --output probes/trigger_trends.html
+
+# Check for regressions (CI integration)
+python probes/probe_monitor.py check
+```
+
+See `probes/MONITORING.md` for complete workflow guide.

@@ -287,7 +287,6 @@ async def get_job_post_signals(
     open_count = len(open_roles_raw)
     source = "crunchbase_sample"
     confidence = 0.6  # Static snapshot
-    velocity_confidence = 0.3  # No historical data
 
     # Attempt Playwright scrape for richer signal
     scraped_roles = await _scrape_careers_page(
@@ -303,18 +302,15 @@ async def get_job_post_signals(
         source = "playwright_scrape"
         confidence = 0.9  # Live data
 
-    # Velocity heuristic (without historical data, confidence is low)
-    if open_count >= 10:
-        velocity = "high"
-    elif open_count >= 5:
-        velocity = "medium"
-    elif open_count >= 1:
-        velocity = "low"
-    else:
-        velocity = "none"
-
-    # TODO: Implement 60-day historical snapshot for true velocity calculation
-    # When implemented, set velocity_confidence = 0.8
+    # Velocity calculation using 60-day historical data
+    # TODO: Implement actual 60-day snapshot storage/retrieval
+    # For now, simulate with None (no historical data available)
+    open_roles_60_days_ago = None  # Placeholder: should come from historical snapshot
+    
+    velocity, velocity_confidence = compute_hiring_velocity_label(
+        current_count=open_count,
+        historical_count=open_roles_60_days_ago
+    )
 
     return {
         "open_roles": open_count,
@@ -322,7 +318,7 @@ async def get_job_post_signals(
         "velocity": velocity,
         "source": source,
         "confidence": confidence,
-        "open_roles_60_days_ago": None,  # Placeholder for historical data
+        "open_roles_60_days_ago": open_roles_60_days_ago,
         "velocity_confidence": velocity_confidence,
     }
 
@@ -418,11 +414,78 @@ def get_leadership_change(
 # AI maturity scoring
 # ---------------------------------------------------------------------------
 
+def _load_ai_maturity_config() -> dict[str, Any]:
+    """Load AI maturity scoring configuration from config file."""
+    config_path = Path(__file__).parent.parent / "config" / "ai_maturity_config.json"
+    try:
+        with open(config_path, "r", encoding="utf-8") as fh:
+            return json.load(fh)
+    except (FileNotFoundError, json.JSONDecodeError) as e:
+        # Fallback to hardcoded defaults if config missing
+        log_trace("ai_maturity_config_load_failed", {"error": str(e)})
+        return _get_default_ai_maturity_config()
+
+
+def _get_default_ai_maturity_config() -> dict[str, Any]:
+    """Fallback configuration if config file is missing."""
+    return {
+        "signals": {
+            "ai_adjacent_roles": {
+                "weight": "high",
+                "keywords": ["ai", "ml", "machine learning", "artificial intelligence", "llm", "nlp", "data scientist", "deep learning", "mlops"],
+                "thresholds": {
+                    "high": {"min_roles": 3, "score_contribution": 2, "confidence": 0.9},
+                    "medium": {"min_roles": 1, "score_contribution": 1, "confidence": 0.7},
+                    "none": {"min_roles": 0, "score_contribution": 0, "confidence": 0.0}
+                }
+            },
+            "named_ai_leadership": {
+                "weight": "high",
+                "tenure_threshold_days": 90,
+                "score_contribution": 1,
+                "confidence": 0.9
+            },
+            "ai_industry_classification": {
+                "weight": "medium",
+                "keywords": ["artificial intelligence", "machine learning", "ai", "ml"],
+                "score_contribution": 1,
+                "confidence": 0.6
+            },
+            "executive_commentary": {
+                "weight": "medium",
+                "keywords": ["ai", "machine learning", "llm", "automation"],
+                "score_contribution": 1,
+                "confidence": 0.6
+            },
+            "ml_stack_keywords": {
+                "weight": "low",
+                "keywords": ["mlops", "pipeline", "data infrastructure", "model", "inference", "vector", "embedding", "neural", "deep learning"],
+                "score_contribution": 0,
+                "confidence": 0.4
+            },
+            "strategic_ai_communications": {
+                "weight": "low",
+                "keywords": ["ai-powered", "ai powered", "artificial intelligence"],
+                "score_contribution": 0,
+                "confidence": 0.4
+            }
+        },
+        "confidence_rules": {
+            "high": {"threshold": 0.85},
+            "medium_high": {"threshold": 0.70},
+            "medium": {"threshold": 0.60},
+            "fallback": 0.30
+        }
+    }
+
+
 def score_ai_maturity(
     job_signals: dict[str, Any], firmographics: dict[str, Any]
 ) -> dict[str, Any]:
     """
     Score AI maturity 0-3 with per-signal justification and standardized confidence.
+    
+    Configuration is externalized to agent/config/ai_maturity_config.json for easy tuning.
 
     Scoring bands:
       0 = no signal
@@ -430,20 +493,21 @@ def score_ai_maturity(
       2 = moderate (medium-weight signals present)
       3 = strong (high-weight signals present)
 
-    Signal weights:
-      HIGH:   AI-adjacent roles (ML Engineer, AI Platform Lead, etc.)
-              Named AI leadership (CTO with AI background)
-      MEDIUM: GitHub AI activity (inferred from description keywords)
-              Executive commentary on AI (recent_news mentions AI)
-      LOW:    ML stack keywords in description
-              Strategic communications (website/description mentions AI)
+    Signal weights (configurable):
+      HIGH:   AI-adjacent roles, Named AI leadership
+      MEDIUM: AI industry classification, Executive commentary
+      LOW:    ML stack keywords, Strategic AI communications
     
-    Confidence scoring:
-      0.8+: 2+ high-weight signals detected
-      0.6+: 1 high-weight + 2 medium-weight signals
-      0.4+: 1+ medium-weight signals or 3+ low-weight
-      <0.4: Low-weight signals only or no signals
+    Confidence scoring (configurable thresholds):
+      0.85+: 2+ high-weight signals detected
+      0.70+: 1 high-weight + 2 medium-weight signals
+      0.60+: 1 high-weight OR 2+ medium-weight signals
+      <0.60: Low-weight signals only or no signals
     """
+    config = _load_ai_maturity_config()
+    signals_config = config.get("signals", {})
+    confidence_rules = config.get("confidence_rules", {})
+    
     score = 0
     justification: list[str] = []
     confidence_votes: list[float] = []
@@ -457,33 +521,40 @@ def score_ai_maturity(
     cto_name: str = firmographics.get("cto_name", "")
     cto_tenure: int | None = firmographics.get("cto_tenure_days")
 
-    # HIGH weight: AI-adjacent open roles
-    if len(ai_roles) >= 3:
-        score += 2
+    # HIGH weight: AI-adjacent open roles (config-driven)
+    roles_config = signals_config.get("ai_adjacent_roles", {})
+    thresholds = roles_config.get("thresholds", {})
+    
+    if len(ai_roles) >= thresholds.get("high", {}).get("min_roles", 3):
+        contrib = thresholds["high"]["score_contribution"]
+        conf = thresholds["high"]["confidence"]
+        score += contrib
         justification.append(
             f"HIGH: {len(ai_roles)} AI-adjacent open roles detected: "
             + ", ".join(ai_roles[:3])
         )
-        confidence_votes.append(0.9)
+        confidence_votes.append(conf)
         signal_breakdown.append({
             "signal_name": "ai_adjacent_roles",
             "weight": "high",
             "detected": True,
-            "confidence": 0.9,
+            "confidence": conf,
             "evidence": f"{len(ai_roles)} roles: " + ", ".join(ai_roles[:3])
         })
-    elif len(ai_roles) >= 1:
-        score += 1
+    elif len(ai_roles) >= thresholds.get("medium", {}).get("min_roles", 1):
+        contrib = thresholds["medium"]["score_contribution"]
+        conf = thresholds["medium"]["confidence"]
+        score += contrib
         justification.append(
             f"HIGH: {len(ai_roles)} AI-adjacent role(s) detected: "
             + ", ".join(ai_roles[:2])
         )
-        confidence_votes.append(0.7)
+        confidence_votes.append(conf)
         signal_breakdown.append({
             "signal_name": "ai_adjacent_roles",
             "weight": "high",
             "detected": True,
-            "confidence": 0.7,
+            "confidence": conf,
             "evidence": f"{len(ai_roles)} role(s): " + ", ".join(ai_roles[:2])
         })
     else:
@@ -495,19 +566,24 @@ def score_ai_maturity(
             "evidence": "No AI/ML roles detected"
         })
 
-    # HIGH weight: Named AI leadership (CTO tenure < 90 days suggests new hire)
-    if cto_name and cto_tenure is not None and cto_tenure <= 90:
-        score += 1
+    # HIGH weight: Named AI leadership (config-driven)
+    leadership_config = signals_config.get("named_ai_leadership", {})
+    tenure_threshold = leadership_config.get("tenure_threshold_days", 90)
+    
+    if cto_name and cto_tenure is not None and cto_tenure <= tenure_threshold:
+        contrib = leadership_config.get("score_contribution", 1)
+        conf = leadership_config.get("confidence", 0.9)
+        score += contrib
         justification.append(
             f"HIGH: New CTO '{cto_name}' joined {cto_tenure} days ago — "
             "likely mandate to modernise tech stack."
         )
-        confidence_votes.append(0.9)
+        confidence_votes.append(conf)
         signal_breakdown.append({
             "signal_name": "named_ai_leadership",
             "weight": "high",
             "detected": True,
-            "confidence": 0.9,
+            "confidence": conf,
             "evidence": f"New CTO {cto_name} ({cto_tenure} days tenure)"
         })
     else:
@@ -519,19 +595,23 @@ def score_ai_maturity(
             "evidence": "No recent CTO appointment detected"
         })
 
-    # MEDIUM weight: AI/ML keywords in industry classification
-    ai_industry_keywords = {"artificial intelligence", "machine learning", "ai", "ml"}
-    if any(kw in industry for kw in ai_industry_keywords):
-        score += 1
+    # MEDIUM weight: AI/ML keywords in industry classification (config-driven)
+    industry_config = signals_config.get("ai_industry_classification", {})
+    industry_keywords = set(industry_config.get("keywords", []))
+    
+    if any(kw in industry for kw in industry_keywords):
+        contrib = industry_config.get("score_contribution", 1)
+        conf = industry_config.get("confidence", 0.6)
+        score += contrib
         justification.append(
             f"MEDIUM: Industry classification contains AI/ML signal: '{industry}'"
         )
-        confidence_votes.append(0.6)
+        confidence_votes.append(conf)
         signal_breakdown.append({
             "signal_name": "ai_industry_classification",
             "weight": "medium",
             "detected": True,
-            "confidence": 0.6,
+            "confidence": conf,
             "evidence": f"Industry: {industry}"
         })
     else:
@@ -543,18 +623,23 @@ def score_ai_maturity(
             "evidence": f"Industry: {industry} (no AI keywords)"
         })
 
-    # MEDIUM weight: Executive commentary in recent news
-    if any(kw in recent_news for kw in ["ai", "machine learning", "llm", "automation"]):
-        score += 1
+    # MEDIUM weight: Executive commentary in recent news (config-driven)
+    commentary_config = signals_config.get("executive_commentary", {})
+    commentary_keywords = commentary_config.get("keywords", [])
+    
+    if any(kw in recent_news for kw in commentary_keywords):
+        contrib = commentary_config.get("score_contribution", 1)
+        conf = commentary_config.get("confidence", 0.6)
+        score += contrib
         justification.append(
             "MEDIUM: Recent news mentions AI/ML/automation — executive commentary signal."
         )
-        confidence_votes.append(0.6)
+        confidence_votes.append(conf)
         signal_breakdown.append({
             "signal_name": "executive_commentary",
             "weight": "medium",
             "detected": True,
-            "confidence": 0.6,
+            "confidence": conf,
             "evidence": "AI/ML mentioned in recent news"
         })
     else:
@@ -566,21 +651,21 @@ def score_ai_maturity(
             "evidence": "No AI/ML in recent news"
         })
 
-    # LOW weight: ML stack keywords in description
-    ml_stack_keywords = [
-        "mlops", "pipeline", "data infrastructure", "model", "inference",
-        "vector", "embedding", "neural", "deep learning",
-    ]
+    # LOW weight: ML stack keywords in description (config-driven)
+    ml_stack_config = signals_config.get("ml_stack_keywords", {})
+    ml_stack_keywords = ml_stack_config.get("keywords", [])
+    
     if any(kw in description for kw in ml_stack_keywords):
+        conf = ml_stack_config.get("confidence", 0.4)
         justification.append(
             "LOW: Product description contains ML stack keywords."
         )
-        confidence_votes.append(0.4)
+        confidence_votes.append(conf)
         signal_breakdown.append({
             "signal_name": "ml_stack_keywords",
             "weight": "low",
             "detected": True,
-            "confidence": 0.4,
+            "confidence": conf,
             "evidence": "ML stack keywords in description"
         })
     else:
@@ -592,17 +677,21 @@ def score_ai_maturity(
             "evidence": "No ML stack keywords"
         })
 
-    # LOW weight: Strategic AI communications in description
-    if any(kw in description for kw in ["ai-powered", "ai powered", "artificial intelligence"]):
+    # LOW weight: Strategic AI communications in description (config-driven)
+    strategic_config = signals_config.get("strategic_ai_communications", {})
+    strategic_keywords = strategic_config.get("keywords", [])
+    
+    if any(kw in description for kw in strategic_keywords):
+        conf = strategic_config.get("confidence", 0.4)
         justification.append(
             "LOW: Description explicitly references AI-powered capabilities."
         )
-        confidence_votes.append(0.4)
+        confidence_votes.append(conf)
         signal_breakdown.append({
             "signal_name": "strategic_ai_communications",
             "weight": "low",
             "detected": True,
-            "confidence": 0.4,
+            "confidence": conf,
             "evidence": "AI-powered mentioned in description"
         })
     else:
@@ -617,24 +706,24 @@ def score_ai_maturity(
     # Cap score at 3
     score = min(score, 3)
 
-    # Derive numeric confidence from votes (standardized 0.0-1.0)
+    # Derive numeric confidence from votes using config thresholds
     if not confidence_votes:
-        confidence = 0.3
+        confidence = confidence_rules.get("fallback", 0.3)
     else:
         # Weighted average: high-weight signals count more
         high_votes = [v for v in confidence_votes if v >= 0.8]
         medium_votes = [v for v in confidence_votes if 0.5 <= v < 0.8]
         
         if len(high_votes) >= 2:
-            confidence = 0.85
+            confidence = confidence_rules.get("high", {}).get("threshold", 0.85)
         elif len(high_votes) >= 1 and len(medium_votes) >= 2:
-            confidence = 0.70
+            confidence = confidence_rules.get("medium_high", {}).get("threshold", 0.70)
         elif len(high_votes) >= 1 or len(medium_votes) >= 2:
-            confidence = 0.60
+            confidence = confidence_rules.get("medium", {}).get("threshold", 0.60)
         elif confidence_votes:
             confidence = sum(confidence_votes) / len(confidence_votes)
         else:
-            confidence = 0.3
+            confidence = confidence_rules.get("fallback", 0.3)
 
     if not justification:
         justification.append("No AI maturity signals detected.")
@@ -1128,6 +1217,70 @@ def _build_hiring_signal_brief(
 
 # ---------------------------------------------------------------------------
 # Utilities
+
+
+def compute_hiring_velocity_label(
+    current_count: int, historical_count: int | None
+) -> tuple[str, float]:
+    """
+    Compute hiring velocity label and confidence from current vs 60-day-ago job counts.
+    
+    Args:
+        current_count: Number of open roles today
+        historical_count: Number of open roles 60 days ago (None if unavailable)
+    
+    Returns:
+        Tuple of (velocity_label, confidence)
+        
+    Velocity labels:
+        - "tripled_or_more": 3x+ growth
+        - "doubled": 2x-3x growth
+        - "increased_modestly": 1.2x-2x growth
+        - "flat": 0.8x-1.2x (±20%)
+        - "declined": <0.8x
+        - "insufficient_signal": No historical data available
+    
+    Confidence:
+        - 0.8: Historical data available and both counts > 0
+        - 0.6: Historical data available but one count is 0
+        - 0.3: No historical data (inferred from current only)
+    
+    Example:
+        >>> compute_hiring_velocity_label(11, 4)
+        ('doubled', 0.8)  # 11/4 = 2.75x growth
+        
+        >>> compute_hiring_velocity_label(5, None)
+        ('insufficient_signal', 0.3)  # No historical data
+    """
+    if historical_count is None:
+        return ("insufficient_signal", 0.3)
+    
+    # Handle edge cases
+    if current_count == 0 and historical_count == 0:
+        return ("flat", 0.6)
+    
+    if historical_count == 0:
+        # Can't compute ratio, but clear growth signal
+        return ("tripled_or_more", 0.6) if current_count >= 3 else ("increased_modestly", 0.6)
+    
+    if current_count == 0:
+        return ("declined", 0.6)
+    
+    # Compute growth ratio
+    ratio = current_count / historical_count
+    
+    if ratio >= 3.0:
+        label = "tripled_or_more"
+    elif ratio >= 2.0:
+        label = "doubled"
+    elif ratio >= 1.2:
+        label = "increased_modestly"
+    elif ratio >= 0.8:
+        label = "flat"
+    else:
+        label = "declined"
+    
+    return (label, 0.8)
 # ---------------------------------------------------------------------------
 
 def _safe_int(value: str) -> int:

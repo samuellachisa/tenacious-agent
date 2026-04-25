@@ -9,13 +9,169 @@ Segments (fixed names):
 
 Hard disqualifiers: consulting, staffing, recruiting, outsourcing firms.
 Mixed signal edge case: funding + layoff → recently_funded with reduced confidence.
+
+Bench capacity constraint: Never commit to capacity that exceeds bench_summary.json counts.
 """
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Any
 
 from agent.integrations.langfuse_client import log_trace
+
+# ---------------------------------------------------------------------------
+# Bench capacity helpers
+# ---------------------------------------------------------------------------
+
+def _load_bench_summary() -> dict[str, Any]:
+    """Load bench_summary.json from seed/ directory."""
+    bench_path = Path(__file__).parent.parent.parent / "seed" / "bench_summary.json"
+    try:
+        with open(bench_path, "r", encoding="utf-8") as fh:
+            return json.load(fh)
+    except (FileNotFoundError, json.JSONDecodeError):
+        # Fallback to empty bench if file missing
+        return {"stacks": {}}
+
+
+def check_bench_capacity(required_stack: str, required_count: int = 1) -> dict[str, Any]:
+    """
+    Check if bench has capacity for the required stack.
+    
+    Args:
+        required_stack: Stack name (python, ml, go, infra, data, frontend, fullstack_nestjs)
+        required_count: Number of engineers needed (default 1)
+    
+    Returns:
+        {
+            "available": bool,
+            "available_count": int,
+            "required_count": int,
+            "stack": str,
+            "gap": int (negative if insufficient),
+            "recommendation": str (what to say to prospect)
+        }
+    
+    Example:
+        >>> check_bench_capacity("python", 5)
+        {
+            "available": True,
+            "available_count": 7,
+            "required_count": 5,
+            "stack": "python",
+            "gap": 2,
+            "recommendation": "We have 7 Python engineers available — we can place your team within 7 days."
+        }
+        
+        >>> check_bench_capacity("ml", 6)
+        {
+            "available": False,
+            "available_count": 5,
+            "required_count": 6,
+            "stack": "ml",
+            "gap": -1,
+            "recommendation": "Our ML bench currently has 5 engineers available. We can start with 5 and ramp the 6th within 2-3 weeks — would that timeline work?"
+        }
+    """
+    bench = _load_bench_summary()
+    stacks = bench.get("stacks", {})
+    
+    stack_data = stacks.get(required_stack.lower(), {})
+    available_count = stack_data.get("available_engineers", 0)
+    gap = available_count - required_count
+    
+    if gap >= 0:
+        # Sufficient capacity
+        deploy_days = stack_data.get("time_to_deploy_days", 14)
+        return {
+            "available": True,
+            "available_count": available_count,
+            "required_count": required_count,
+            "stack": required_stack,
+            "gap": gap,
+            "recommendation": (
+                f"We have {available_count} {required_stack.title()} engineers available — "
+                f"we can place your team within {deploy_days} days."
+            ),
+        }
+    else:
+        # Insufficient capacity — offer phased ramp
+        return {
+            "available": False,
+            "available_count": available_count,
+            "required_count": required_count,
+            "stack": required_stack,
+            "gap": gap,
+            "recommendation": (
+                f"Our {required_stack.title()} bench currently has {available_count} engineers available. "
+                f"We can start with {available_count} and ramp the remaining {abs(gap)} within 2-3 weeks — "
+                "would that timeline work for your needs?"
+            ) if available_count > 0 else (
+                f"Our {required_stack.title()} bench is currently at capacity. "
+                "Let me connect you with our delivery lead to discuss timeline and alternatives."
+            ),
+        }
+
+
+def infer_required_stacks(enrichment: dict[str, Any]) -> list[str]:
+    """
+    Infer which stacks the prospect likely needs based on enrichment signals.
+    
+    Returns list of stack names in priority order: ["ml", "python", "data"]
+    
+    Logic:
+    - AI maturity >= 2 → ml stack
+    - AI roles in job posts → ml stack
+    - Data-related job posts → data stack
+    - Backend/API roles → python or go
+    - Frontend roles → frontend
+    - DevOps/infra roles → infra
+    """
+    stacks: list[str] = []
+    
+    ai_maturity = enrichment.get("ai_maturity", {}).get("score", 0)
+    job_signals = enrichment.get("job_signals", {})
+    ai_roles = job_signals.get("ai_roles", [])
+    open_roles_raw = enrichment.get("firmographics", {}).get("open_roles_raw", [])
+    
+    # AI/ML stack
+    if ai_maturity >= 2 or ai_roles:
+        stacks.append("ml")
+    
+    # Data stack
+    data_keywords = {"data engineer", "data analyst", "analytics", "dbt", "snowflake", "databricks"}
+    if any(any(kw in role.lower() for kw in data_keywords) for role in open_roles_raw):
+        stacks.append("data")
+    
+    # Python backend
+    python_keywords = {"python", "django", "fastapi", "flask", "backend"}
+    if any(any(kw in role.lower() for kw in python_keywords) for role in open_roles_raw):
+        if "python" not in stacks:  # Don't duplicate if already added via ML
+            stacks.append("python")
+    
+    # Go backend
+    go_keywords = {"go", "golang", "microservices"}
+    if any(any(kw in role.lower() for kw in go_keywords) for role in open_roles_raw):
+        stacks.append("go")
+    
+    # Infra/DevOps
+    infra_keywords = {"devops", "infrastructure", "kubernetes", "k8s", "terraform", "aws", "gcp", "sre"}
+    if any(any(kw in role.lower() for kw in infra_keywords) for role in open_roles_raw):
+        stacks.append("infra")
+    
+    # Frontend
+    frontend_keywords = {"frontend", "react", "next.js", "typescript", "ui", "ux"}
+    if any(any(kw in role.lower() for kw in frontend_keywords) for role in open_roles_raw):
+        stacks.append("frontend")
+    
+    # Default to python if no specific signals
+    if not stacks:
+        stacks.append("python")
+    
+    return stacks
+
 
 # ---------------------------------------------------------------------------
 # Hard disqualifier keywords (industry / description)
@@ -297,7 +453,7 @@ def build_pitch_language(
     enrichment: dict[str, Any],
 ) -> str:
     """
-    Generate segment-aware, AI-maturity-aware pitch language.
+    Generate segment-aware, AI-maturity-aware, bench-capacity-aware pitch language.
 
     Rules:
     - Low confidence → ask rather than assert
@@ -305,6 +461,7 @@ def build_pitch_language(
     - Segment 4 (capability_gap) only pitched if AI maturity >= 2
     - Language shifts based on AI maturity score
     - Uses structured competitor gap findings when available
+    - CRITICAL: Never commit to capacity that exceeds bench_summary.json counts
     """
     company = enrichment.get("company", "your company")
     job_signals: dict = enrichment.get("job_signals", {})
@@ -315,6 +472,24 @@ def build_pitch_language(
     layoff_signal: dict | None = enrichment.get("layoff_signal")
     leadership_change: dict | None = enrichment.get("leadership_change")
     competitor_gap: dict = enrichment.get("competitor_gap", {})
+
+    # Infer required stacks and check bench capacity
+    required_stacks = infer_required_stacks(enrichment)
+    primary_stack = required_stacks[0] if required_stacks else "python"
+    capacity_check = check_bench_capacity(primary_stack, required_count=1)
+    
+    # Build capacity-aware language
+    if capacity_check["available"]:
+        capacity_line = (
+            f"\n\nWe have {capacity_check['available_count']} "
+            f"{primary_stack.title()} engineers on our bench right now — "
+            f"we can place your first engineer within {_get_deploy_days(primary_stack)} days."
+        )
+    else:
+        # Insufficient capacity — be honest
+        capacity_line = (
+            f"\n\n{capacity_check['recommendation']}"
+        )
 
     # Hiring velocity language — never assert "aggressive" if < 5 roles
     if open_roles >= 5:
@@ -479,7 +654,15 @@ def build_pitch_language(
             "faster and more cost-effectively than traditional hiring."
         )
 
-    return f"{opening}\n\n{ai_line}{gap_line}"
+    return f"{opening}\n\n{ai_line}{gap_line}{capacity_line}"
+
+
+def _get_deploy_days(stack: str) -> int:
+    """Get deployment timeline for a stack from bench_summary.json."""
+    bench = _load_bench_summary()
+    stacks = bench.get("stacks", {})
+    stack_data = stacks.get(stack.lower(), {})
+    return stack_data.get("time_to_deploy_days", 14)
 
 
 # ---------------------------------------------------------------------------

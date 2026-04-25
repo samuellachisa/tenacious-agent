@@ -1,0 +1,92 @@
+{
+  "description": "AI maturity scoring configuration. Externalized for easy tuning without code changes.",
+  "version": "1.0.0",
+  "last_updated": "2026-04-25",
+  
+  "scoring_bands": {
+    "0_no_signal": "No AI signal detected",
+    "1_weak": "Weak AI signal (low-weight signals only)",
+    "2_moderate": "Moderate AI signal (medium-weight signals present)",
+    "3_strong": "Strong AI signal (high-weight signals present)"
+  },
+
+  "signals": {
+    "ai_adjacent_roles": {
+      "weight": "high",
+      "description": "Open job posts for AI/ML roles",
+      "keywords": [
+        "ai", "ml", "machine learning", "artificial intelligence",
+        "llm", "nlp", "data scientist", "deep learning", "mlops",
+        "ai platform", "ai engineer", "ai product", "ai compliance",
+        "ml researcher", "ai lead"
+      ],
+      "thresholds": {
+        "high": {"min_roles": 3, "score_contribution": 2, "confidence": 0.9},
+        "medium": {"min_roles": 1, "score_contribution": 1, "confidence": 0.7},
+        "none": {"min_roles": 0, "score_contribution": 0, "confidence": 0.0}
+      }
+    },
+    "named_ai_leadership": {
+      "weight": "high",
+      "description": "Recent CTO/VP Eng appointment",
+      "tenure_threshold_days": 90,
+      "score_contribution": 1,
+      "confidence": 0.9
+    },
+    "ai_industry_classification": {
+      "weight": "medium",
+      "description": "Industry field contains AI/ML keywords",
+      "keywords": ["artificial intelligence", "machine learning", "ai", "ml"],
+      "score_contribution": 1,
+      "confidence": 0.6
+    },
+    "executive_commentary": {
+      "weight": "medium",
+      "description": "Recent news mentions AI/ML/automation",
+      "keywords": ["ai", "machine learning", "llm", "automation"],
+      "score_contribution": 1,
+      "confidence": 0.6
+    },
+    "ml_stack_keywords": {
+      "weight": "low",
+      "description": "Product description contains ML stack keywords",
+      "keywords": [
+        "mlops", "pipeline", "data infrastructure", "model", "inference",
+        "vector", "embedding", "neural", "deep learning"
+      ],
+      "score_contribution": 0,
+      "confidence": 0.4
+    },
+    "strategic_ai_communications": {
+      "weight": "low",
+      "description": "Description explicitly references AI-powered capabilities",
+      "keywords": ["ai-powered", "ai powered", "artificial intelligence"],
+      "score_contribution": 0,
+      "confidence": 0.4
+    }
+  },
+
+  "confidence_rules": {
+    "high": {
+      "threshold": 0.85,
+      "criteria": "2+ high-weight signals detected"
+    },
+    "medium_high": {
+      "threshold": 0.70,
+      "criteria": "1 high-weight + 2 medium-weight signals"
+    },
+    "medium": {
+      "threshold": 0.60,
+      "criteria": "1 high-weight OR 2+ medium-weight signals"
+    },
+    "fallback": 0.30
+  },
+
+  "tuning_notes": {
+    "ai_adjacent_roles": "Increase score_contribution from 2 to 3 if 5+ AI roles detected (aggressive hiring signal)",
+    "named_ai_leadership": "Consider adding VP Data, Head of AI, Chief Data Officer to leadership detection",
+    "executive_commentary": "Add 'generative ai', 'genai', 'chatgpt' to keywords if relevant to ICP",
+    "ml_stack_keywords": "Add 'transformer', 'diffusion', 'stable diffusion' if targeting AI-native companies",
+    "strategic_ai_communications": "Consider downweighting if too many false positives from marketing copy"
+  }
+}
