@@ -1,0 +1,32 @@
+[
+  {
+    "name": "DataFlow Technologies",
+    "category_list": "Enterprise Software|Data Infrastructure",
+    "country_code": "US",
+    "city": "San Francisco",
+    "employee_count": 150,
+    "founded_on": "2020-03-15",
+    "short_description": "DataFlow provides real-time data infrastructure for AI-powered applications",
+    "homepage_url": "https://dataflow.tech",
+    "total_funding_usd": 25000000,
+    "last_funding_type": "series_a",
+    "last_funding_at": "2026-01-15",
+    "linkedin_url": "https://linkedin.com/company/dataflow-tech",
+    "cto_name": "Sarah Chen",
+    "cto_tenure_days": 45,
+    "open_roles": [
+      "Senior ML Engineer",
+      "AI Platform Engineer",
+      "Backend Engineer",
+      "Frontend Developer",
+      "Data Scientist",
+      "DevOps Engineer",
+      "Product Manager",
+      "Senior Software Engineer",
+      "ML Researcher",
+      "AI Compliance Lead",
+      "Full Stack Engineer"
+    ],
+    "recent_news": "DataFlow announces new AI-powered data pipeline features"
+  }
+]

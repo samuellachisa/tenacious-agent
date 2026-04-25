@@ -17,6 +17,11 @@ from typing import Any
 from dotenv import load_dotenv
 
 from agent.integrations.langfuse_client import log_trace
+from agent.core.job_history import (
+    store_job_snapshot,
+    get_historical_snapshot,
+    cleanup_old_snapshots,
+)
 
 load_dotenv()
 
@@ -267,6 +272,9 @@ async def get_job_post_signals(
     """
     Derive job-post signals from the Crunchbase open_roles list and attempt
     a lightweight Playwright scrape of the company's careers page.
+    
+    Stores current snapshot and retrieves 60-day historical snapshot for
+    velocity calculation.
 
     Returns: open_roles (int), ai_roles (list), velocity (str),
              source (str), confidence (float), velocity_confidence (float),
@@ -308,17 +316,43 @@ async def get_job_post_signals(
         source = "playwright_scrape"
         confidence = 0.9  # Live data
 
-    # Velocity calculation using 60-day historical data
-    # TODO: Implement actual 60-day snapshot storage/retrieval
-    # For now, simulate with None (no historical data available)
-    open_roles_60_days_ago = None  # Placeholder: should come from historical snapshot
+    now = datetime.now(timezone.utc)
     
+    # Extract company domain for snapshot storage
+    website = firmographics.get("website", "")
+    company_domain = website.replace("https://", "").replace("http://", "").split("/")[0]
+    if not company_domain:
+        # Fallback to sanitized company name
+        company_domain = company_name.lower().replace(" ", "_").replace("/", "_")
+    
+    # Store current snapshot for future velocity calculations
+    store_job_snapshot(
+        company_domain=company_domain,
+        open_roles_count=open_count,
+        ai_roles_count=len(ai_roles),
+        source=source,
+        timestamp=now,
+    )
+    
+    # Retrieve 60-day historical snapshot for velocity calculation
+    historical_snapshot = get_historical_snapshot(
+        company_domain=company_domain,
+        days_ago=60,
+        reference_date=now,
+    )
+    
+    open_roles_60_days_ago = None
+    if historical_snapshot:
+        open_roles_60_days_ago = historical_snapshot.get("open_roles_count")
+    
+    # Compute velocity using actual historical data
     velocity, velocity_confidence = compute_hiring_velocity_label(
         current_count=open_count,
         historical_count=open_roles_60_days_ago
     )
-
-    now = datetime.now(timezone.utc)
+    
+    # Cleanup old snapshots (keep 90 days of history)
+    cleanup_old_snapshots(company_domain, keep_days=90)
 
     return {
         "open_roles": open_count,
@@ -808,16 +842,25 @@ def build_competitor_gap_brief(
     ai_maturity: dict[str, Any],
 ) -> dict[str, Any]:
     """
-    Build a competitive gap brief by comparing the prospect's AI maturity
-    against sector peers from the Crunchbase sample.
+    Build a competitive gap brief comparing the prospect's AI maturity against
+    5-10 scored sector peers sourced from the Crunchbase sample.
 
-    Returns structured brief matching schemas/competitor_gap_brief.schema.json:
-      - prospect_domain, prospect_sector, generated_at
-      - prospect_ai_maturity_score, sector_top_quartile_benchmark
-      - competitors_analyzed (with full details and source URLs)
-      - gap_findings (with peer_evidence arrays and confidence)
-      - gap_quality_self_check
+    Peer selection strategy (two-stage):
+      1. Primary: Companies that share at least one category keyword with the
+         prospect's industry / category_list field.
+      2. Sparse-sector fallback: If fewer than SPARSE_SECTOR_THRESHOLD sector
+         peers are found, expand to ALL other companies in the dataset.
+         The output includes sparse_sector=True so downstream consumers can
+         adjust pitch language and confidence accordingly.
+
+    Each peer is scored using the same score_ai_maturity() rubric applied to
+    the prospect, ensuring an apples-to-apples comparison.
+
+    Returns a dict matching schemas/competitor_gap_brief.schema.json.
     """
+    # Minimum sector peers before triggering the sparse-sector fallback.
+    SPARSE_SECTOR_THRESHOLD = 5
+
     path = _crunchbase_path()
     try:
         with open(path, "r", encoding="utf-8") as fh:
@@ -827,30 +870,45 @@ def build_competitor_gap_brief(
 
     company_industry = firmographics.get("industry", "").lower()
     company_score = ai_maturity.get("score", 0)
-    company_domain = firmographics.get("website", "").replace("https://", "").replace("http://", "").split("/")[0]
+    company_domain = (
+        firmographics.get("website", "")
+        .replace("https://", "").replace("http://", "")
+        .split("/")[0]
+    )
 
-    # Find sector peers (same broad industry, different company)
-    peers: list[dict] = []
-    for record in all_records:
-        if record.get("name", "").strip().lower() == company_name.strip().lower():
-            continue
+    # -------------------------------------------------------------------------
+    # Step 1: Peer selection with explicit sparse-sector handling
+    # -------------------------------------------------------------------------
+
+    def _shares_sector(record: dict) -> bool:
         rec_industry = record.get("category_list", "").lower()
-        # Broad sector match: share at least one category keyword
         company_cats = set(company_industry.replace("|", " ").split())
         rec_cats = set(rec_industry.replace("|", " ").split())
-        if company_cats & rec_cats:
-            peers.append(record)
+        # Require at least one non-trivial overlapping token
+        overlap = company_cats & rec_cats - {"", "and", "the", "of", "for"}
+        return bool(overlap)
 
-    # If no sector peers, use all other companies
-    if not peers:
-        peers = [
-            r for r in all_records
-            if r.get("name", "").strip().lower() != company_name.strip().lower()
-        ]
+    other_companies = [
+        r for r in all_records
+        if r.get("name", "").strip().lower() != company_name.strip().lower()
+    ]
+    sector_peers = [r for r in other_companies if _shares_sector(r)]
 
-    # Score each peer's AI maturity using available signals
+    # Sparse-sector: fewer than threshold → fall back to cross-sector pool
+    sparse_sector = len(sector_peers) < SPARSE_SECTOR_THRESHOLD
+    peer_pool = other_companies if sparse_sector else sector_peers
+
+    # Cap at 10 to keep brief tractable
+    peers = peer_pool[:10]
+
+    # -------------------------------------------------------------------------
+    # Step 2: Score each peer with the AI maturity scorer (same rubric)
+    # -------------------------------------------------------------------------
+
     competitors_analyzed: list[dict] = []
-    for peer in peers[:10]:
+    peer_signal_breakdowns: list[list[dict]] = []  # parallel; used for gap extraction
+
+    for peer in peers:
         peer_firmographics = {
             "industry": peer.get("category_list", ""),
             "description": peer.get("short_description", "").lower(),
@@ -870,8 +928,7 @@ def build_competitor_gap_brief(
             ],
         }
         peer_maturity = score_ai_maturity(peer_job_signals, peer_firmographics)
-        
-        # Determine headcount band
+
         emp_count = peer.get("employee_count", 0)
         if emp_count < 80:
             headcount_band = "15_to_80"
@@ -883,163 +940,263 @@ def build_competitor_gap_brief(
             headcount_band = "500_to_2000"
         else:
             headcount_band = "2000_plus"
-        
-        # Build source URLs
-        peer_domain = peer.get("homepage_url", "").replace("https://", "").replace("http://", "").split("/")[0]
-        sources_checked = []
+
+        peer_domain = (
+            peer.get("homepage_url", "")
+            .replace("https://", "").replace("http://", "")
+            .split("/")[0]
+        )
+        sources_checked: list[str] = []
         if peer.get("linkedin_url"):
             sources_checked.append(peer["linkedin_url"])
         if peer_domain:
             sources_checked.append(f"https://{peer_domain}/careers")
-            sources_checked.append(f"https://builtin.com/company/{peer.get('name', '').lower().replace(' ', '-')}/jobs")
-        
+            slug = peer.get("name", "").lower().replace(" ", "-")
+            sources_checked.append(f"https://builtin.com/company/{slug}/jobs")
+
         competitors_analyzed.append({
             "name": peer.get("name", "Unknown"),
             "domain": peer_domain or "unknown.example",
             "ai_maturity_score": peer_maturity["score"],
             "ai_maturity_justification": peer_maturity.get("justification", []),
             "headcount_band": headcount_band,
-            "top_quartile": False,  # Will be set after quartile calculation
-            "sources_checked": sources_checked[:3],  # Limit to 3 sources
+            "top_quartile": False,  # set after quartile computation
+            "sources_checked": sources_checked[:3],
         })
+        peer_signal_breakdowns.append(peer_maturity.get("signal_breakdown", []))
+
+    # -------------------------------------------------------------------------
+    # Step 3: Compute sector position (top-quartile benchmark)
+    # -------------------------------------------------------------------------
 
     scores_only = [c["ai_maturity_score"] for c in competitors_analyzed]
     sector_median = _median(scores_only) if scores_only else 0.0
     top_quartile_score = _percentile(scores_only, 75) if scores_only else 0.0
 
-    # Mark top quartile competitors
     for comp in competitors_analyzed:
         comp["top_quartile"] = comp["ai_maturity_score"] >= top_quartile_score
 
-    # Build structured gap findings with peer evidence
+    # -------------------------------------------------------------------------
+    # Step 4: Extract 2-3 evidence-backed practice gaps
+    #
+    # Evidence is drawn from signal_breakdown (per-signal structured output of
+    # score_ai_maturity) rather than free-text justification strings, giving
+    # specific, verifiable claims with correct confidence values.
+    # -------------------------------------------------------------------------
+
+    # Index of prospect's own signal breakdown for "what does the prospect show"
+    prospect_breakdown: dict[str, dict] = {
+        s["signal_name"]: s
+        for s in ai_maturity.get("signal_breakdown", [])
+    }
+
+    def _peer_url(comp: dict, preference: int = 0) -> str:
+        urls = comp.get("sources_checked", [])
+        if not urls:
+            domain = comp.get("domain", "example.com")
+            return f"https://{domain}/careers"
+        return urls[min(preference, len(urls) - 1)]
+
+    top_quartile_indices = [
+        i for i, c in enumerate(competitors_analyzed) if c["top_quartile"]
+    ]
+
     gap_findings: list[dict] = []
-    top_quartile_peers = [c for c in competitors_analyzed if c["top_quartile"]]
-    
-    # Gap 1: Dedicated AI leadership
+
+    # -- Gap 1: Dedicated AI/ML leadership (named_ai_leadership HIGH signal) --
     if company_score < top_quartile_score:
-        ai_leadership_peers = [
-            c for c in top_quartile_peers
-            if any("named ai leadership" in j.lower() or "cto" in j.lower() 
-                   for j in c.get("ai_maturity_justification", []))
+        leadership_indices = [
+            i for i in top_quartile_indices
+            if any(
+                s["signal_name"] == "named_ai_leadership" and s["detected"]
+                for s in peer_signal_breakdowns[i]
+            )
         ]
-        
-        if len(ai_leadership_peers) >= 2:
+        if len(leadership_indices) >= 2:
             peer_evidence = []
-            for peer in ai_leadership_peers[:3]:
-                evidence_text = next(
-                    (j for j in peer.get("ai_maturity_justification", []) 
-                     if "cto" in j.lower() or "leadership" in j.lower()),
-                    f"AI maturity score {peer['ai_maturity_score']}/3"
+            for i in leadership_indices[:3]:
+                comp = competitors_analyzed[i]
+                sig = next(
+                    (s for s in peer_signal_breakdowns[i]
+                     if s["signal_name"] == "named_ai_leadership" and s["detected"]),
+                    None,
                 )
                 peer_evidence.append({
-                    "competitor_name": peer["name"],
-                    "evidence": evidence_text,
-                    "source_url": peer.get("sources_checked", ["https://example.com"])[0],
+                    "competitor_name": comp["name"],
+                    "evidence": sig["evidence"] if sig else f"AI maturity score {comp['ai_maturity_score']}/3",
+                    "source_url": _peer_url(comp, 0),
                 })
-            
-            prospect_has_leadership = any(
-                "leadership" in j.lower() or "cto" in j.lower()
-                for j in ai_maturity.get("justification", [])
+
+            prospect_leadership = prospect_breakdown.get("named_ai_leadership", {})
+            prospect_state = (
+                f"{company_name} has no named AI/ML leadership role detected in public signals."
+                if not prospect_leadership.get("detected")
+                else f"{company_name} shows a recent technical hire but no exclusively AI/ML-focused leadership role."
             )
-            
             gap_findings.append({
                 "practice": "Dedicated AI/ML leadership role at executive level",
                 "peer_evidence": peer_evidence,
-                "prospect_state": (
-                    f"{company_name} has no named AI/ML leadership role detected in public signals."
-                    if not prospect_has_leadership
-                    else f"{company_name} shows some technical leadership but not dedicated AI role."
-                ),
+                "prospect_state": prospect_state,
                 "confidence": "high" if len(peer_evidence) >= 2 else "medium",
                 "segment_relevance": ["segment_1_series_a_b", "segment_4_specialized_capability"],
             })
 
-    # Gap 2: Active AI/ML hiring
+    # -- Gap 2: Active AI/ML engineering hiring (ai_adjacent_roles HIGH signal) --
     if company_score < top_quartile_score:
-        hiring_peers = [
-            c for c in top_quartile_peers
-            if any("ai-adjacent" in j.lower() or "open role" in j.lower()
-                   for j in c.get("ai_maturity_justification", []))
+        hiring_indices = [
+            i for i in top_quartile_indices
+            if any(
+                s["signal_name"] == "ai_adjacent_roles" and s["detected"]
+                for s in peer_signal_breakdowns[i]
+            )
         ]
-        
-        if len(hiring_peers) >= 2:
+        if len(hiring_indices) >= 2:
             peer_evidence = []
-            for peer in hiring_peers[:3]:
-                evidence_text = next(
-                    (j for j in peer.get("ai_maturity_justification", [])
-                     if "role" in j.lower()),
-                    f"Multiple AI/ML roles open"
+            for i in hiring_indices[:3]:
+                comp = competitors_analyzed[i]
+                sig = next(
+                    (s for s in peer_signal_breakdowns[i]
+                     if s["signal_name"] == "ai_adjacent_roles" and s["detected"]),
+                    None,
                 )
                 peer_evidence.append({
-                    "competitor_name": peer["name"],
-                    "evidence": evidence_text,
-                    "source_url": peer.get("sources_checked", ["https://example.com"])[1] if len(peer.get("sources_checked", [])) > 1 else peer.get("sources_checked", ["https://example.com"])[0],
+                    "competitor_name": comp["name"],
+                    "evidence": sig["evidence"] if sig else f"Multiple AI/ML open roles (score {comp['ai_maturity_score']}/3)",
+                    "source_url": _peer_url(comp, 1),
                 })
-            
-            company_ai_roles = len([
-                j for j in ai_maturity.get("justification", [])
-                if "role" in j.lower()
-            ])
-            
+
+            prospect_roles_sig = prospect_breakdown.get("ai_adjacent_roles", {})
+            if prospect_roles_sig.get("detected"):
+                prospect_state = (
+                    f"{company_name} has open AI/ML roles "
+                    f"({prospect_roles_sig.get('evidence', 'detected')}), "
+                    "but below the top-quartile threshold of 3+ active openings."
+                )
+            else:
+                prospect_state = (
+                    f"{company_name} has no AI-adjacent open roles detected in public job boards."
+                )
             gap_findings.append({
-                "practice": "Active AI/ML engineering hiring (3+ open roles)",
+                "practice": "Active AI/ML engineering hiring (3+ open roles signalling platform buildout)",
                 "peer_evidence": peer_evidence,
-                "prospect_state": (
-                    f"{company_name} has {company_ai_roles} AI-adjacent role(s) detected, "
-                    f"below top-quartile peer average."
-                    if company_ai_roles > 0
-                    else f"{company_name} has no AI-adjacent open roles detected in public job boards."
-                ),
+                "prospect_state": prospect_state,
                 "confidence": "high" if len(peer_evidence) >= 2 else "medium",
                 "segment_relevance": ["segment_4_specialized_capability"],
             })
 
-    # Gap 3: Public AI commentary or technical content
+    # -- Gap 3: Public executive commentary on AI strategy (MEDIUM signal) --
     if company_score <= 1 and top_quartile_score >= 2:
-        commentary_peers = [
-            c for c in top_quartile_peers
-            if any("commentary" in j.lower() or "news" in j.lower()
-                   for j in c.get("ai_maturity_justification", []))
+        commentary_indices = [
+            i for i in top_quartile_indices
+            if any(
+                s["signal_name"] == "executive_commentary" and s["detected"]
+                for s in peer_signal_breakdowns[i]
+            )
         ]
-        
-        if len(commentary_peers) >= 2:
+        if len(commentary_indices) >= 2:
             peer_evidence = []
-            for peer in commentary_peers[:2]:
-                evidence_text = next(
-                    (j for j in peer.get("ai_maturity_justification", [])
-                     if "commentary" in j.lower() or "news" in j.lower()),
-                    "Executive commentary on AI strategy"
+            for i in commentary_indices[:2]:
+                comp = competitors_analyzed[i]
+                sig = next(
+                    (s for s in peer_signal_breakdowns[i]
+                     if s["signal_name"] == "executive_commentary" and s["detected"]),
+                    None,
                 )
                 peer_evidence.append({
-                    "competitor_name": peer["name"],
-                    "evidence": evidence_text,
-                    "source_url": peer.get("sources_checked", ["https://example.com"])[0],
+                    "competitor_name": comp["name"],
+                    "evidence": sig["evidence"] if sig else "AI/ML mentioned in recent news",
+                    "source_url": _peer_url(comp, 0),
                 })
-            
+            prospect_commentary = prospect_breakdown.get("executive_commentary", {})
+            prospect_state = (
+                f"{company_name} has no AI/ML commentary in recent public news."
+                if not prospect_commentary.get("detected")
+                else f"{company_name} mentions AI in news but public commentary is limited compared to top-quartile peers."
+            )
             gap_findings.append({
-                "practice": "Public technical commentary on AI/ML strategy",
+                "practice": "Public executive commentary on AI/ML strategy in news or investor materials",
                 "peer_evidence": peer_evidence,
-                "prospect_state": (
-                    f"{company_name} has limited public AI commentary in recent news or blog posts."
-                ),
+                "prospect_state": prospect_state,
                 "confidence": "medium",
                 "segment_relevance": ["segment_1_series_a_b"],
             })
 
-    # If no gaps found, add positive finding
+    # -- Fallback: prospect at/above benchmark (schema requires ≥1 gap_finding with ≥2 peer_evidence) --
     if not gap_findings:
-        gap_findings.append({
-            "practice": "AI maturity at or above sector benchmark",
-            "peer_evidence": [],
-            "prospect_state": (
-                f"{company_name} AI maturity score ({company_score}) is at or above "
-                f"sector top quartile ({top_quartile_score:.1f}). Focus on scaling existing capabilities."
-            ),
-            "confidence": "high",
-            "segment_relevance": ["segment_1_series_a_b", "segment_4_specialized_capability"],
-        })
+        if not competitors_analyzed:
+            # Edge case: dataset has no other companies — report as insufficient data
+            domain_url = f"https://{company_domain}/careers" if company_domain else "https://example.com/careers"
+            gap_findings.append({
+                "practice": "Insufficient peer data — cross-sector analysis recommended",
+                "peer_evidence": [
+                    {
+                        "competitor_name": "Sector dataset",
+                        "evidence": (
+                            "No sector-matched peer companies found in the current dataset. "
+                            "Brief generated with an empty sample; re-run with a full Crunchbase export."
+                        ),
+                        "source_url": domain_url,
+                    },
+                    {
+                        "competitor_name": "Cross-sector analysis",
+                        "evidence": (
+                            "Expand the dataset with additional industry peers before drawing "
+                            "gap conclusions or using this brief for outreach."
+                        ),
+                        "source_url": "https://builtin.com/companies",
+                    },
+                ],
+                "prospect_state": (
+                    f"{company_name} AI maturity score ({company_score}) cannot be benchmarked "
+                    "without peer data in the current dataset."
+                ),
+                "confidence": "low",
+                "segment_relevance": [],
+            })
+        else:
+            # Normal case: prospect at or above benchmark — show top peers as context
+            benchmark_evidence: list[dict] = []
+            candidate_indices = top_quartile_indices or list(range(len(competitors_analyzed)))
+            for i in candidate_indices[:3]:
+                comp = competitors_analyzed[i]
+                justifications = comp.get("ai_maturity_justification", [])
+                benchmark_evidence.append({
+                    "competitor_name": comp["name"],
+                    "evidence": (
+                        justifications[0]
+                        if justifications
+                        else f"AI maturity score {comp['ai_maturity_score']}/3"
+                    ),
+                    "source_url": _peer_url(comp, 0),
+                })
+            # Guarantee at least 2 entries to satisfy schema minItems: 2
+            seen = {e["competitor_name"] for e in benchmark_evidence}
+            for comp in competitors_analyzed:
+                if len(benchmark_evidence) >= 2:
+                    break
+                if comp["name"] not in seen:
+                    benchmark_evidence.append({
+                        "competitor_name": comp["name"],
+                        "evidence": f"AI maturity score {comp['ai_maturity_score']}/3",
+                        "source_url": _peer_url(comp, 0),
+                    })
+                    seen.add(comp["name"])
+            gap_findings.append({
+                "practice": "AI maturity at or above sector benchmark — opportunity to scale existing capabilities",
+                "peer_evidence": benchmark_evidence[:3],
+                "prospect_state": (
+                    f"{company_name} AI maturity score ({company_score}) is at or above the "
+                    f"sector top-quartile benchmark ({top_quartile_score:.1f}). "
+                    "No critical gaps detected from public signals."
+                ),
+                "confidence": "high",
+                "segment_relevance": ["segment_1_series_a_b", "segment_4_specialized_capability"],
+            })
 
-    # Quality self-check
+    # -------------------------------------------------------------------------
+    # Step 5: Quality self-check
+    # -------------------------------------------------------------------------
+
     all_evidence_has_urls = all(
         all(ev.get("source_url") for ev in gap.get("peer_evidence", []))
         for gap in gap_findings
@@ -1047,15 +1204,16 @@ def build_competitor_gap_brief(
     at_least_one_high_confidence = any(
         gap.get("confidence") == "high" for gap in gap_findings
     )
-    
-    # Check if prospect might be sophisticated but silent
+    # Silent-but-sophisticated: low public score but ML stack keywords detected
     prospect_silent_but_sophisticated = (
-        company_score <= 1 and
-        any("description" in j.lower() or "strategic" in j.lower()
-            for j in ai_maturity.get("justification", []))
+        company_score <= 1
+        and prospect_breakdown.get("ml_stack_keywords", {}).get("detected", False)
     )
 
-    # Confidence based on peer sample size
+    # -------------------------------------------------------------------------
+    # Step 6: Brief-level confidence and pitch guidance
+    # -------------------------------------------------------------------------
+
     if len(competitors_analyzed) >= 5:
         brief_confidence = "high"
     elif len(competitors_analyzed) >= 2:
@@ -1063,16 +1221,30 @@ def build_competitor_gap_brief(
     else:
         brief_confidence = "low"
 
-    # Suggested pitch shift
-    if gap_findings and gap_findings[0].get("confidence") == "high":
+    # Sparse sector downgrades confidence by one notch
+    if sparse_sector and brief_confidence == "high":
+        brief_confidence = "medium"
+
+    first_gap = gap_findings[0]
+    is_benchmark_gap = "at or above sector benchmark" in first_gap["practice"]
+
+    if first_gap.get("confidence") == "high" and not is_benchmark_gap:
+        gap_label = first_gap["practice"]
         suggested_pitch = (
-            f"Lead with {gap_findings[0]['practice']} gap (high confidence). "
-            "Frame as a question rather than assertion to maintain advisory tone."
+            f"Lead with the '{gap_label}' gap (high confidence, "
+            f"{len(first_gap['peer_evidence'])} peer examples). "
+            "Frame as a question rather than an assertion to maintain advisory tone."
         )
     else:
         suggested_pitch = (
-            "No strong gaps detected. Focus on scaling existing capabilities "
-            "rather than competitive positioning."
+            "No strong gaps detected. Focus on scaling existing AI capabilities "
+            "and deepening the AI/ML function rather than competitive positioning."
+        )
+    if sparse_sector:
+        suggested_pitch += (
+            " Note: benchmark derived from cross-sector peers (fewer than "
+            f"{SPARSE_SECTOR_THRESHOLD} sector-matched companies in dataset); "
+            "validate peer relevance before citing specific companies in outreach."
         )
 
     return {
@@ -1090,6 +1262,7 @@ def build_competitor_gap_brief(
             "prospect_silent_but_sophisticated_risk": prospect_silent_but_sophisticated,
         },
         "confidence": brief_confidence,
+        "sparse_sector": sparse_sector,
         # Legacy fields for backward compatibility
         "sector": firmographics.get("industry", "Unknown"),
         "peers_analyzed": len(competitors_analyzed),
