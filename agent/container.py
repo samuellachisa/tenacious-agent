@@ -11,13 +11,22 @@ from agent.adapters.gateways.sms_adapter import SMSAdapter
 from agent.adapters.observability.langfuse_adapter import LangfuseAdapter
 from agent.adapters.repositories.file_data_repository import FileDataRepository
 from agent.core.channel_orchestrator import ChannelOrchestrator
+from agent.domain.ports.crm_repository import CRMRepository
 from agent.domain.use_cases.enrich_prospect import EnrichProspect
 from agent.domain.use_cases.qualify_prospect import QualifyProspect
 
 
+def _build_crm_adapter() -> CRMRepository:
+    """Select CRM transport: MCP when HUBSPOT_USE_MCP=true, REST otherwise."""
+    if os.getenv("HUBSPOT_USE_MCP", "false").lower() == "true":
+        from agent.adapters.gateways.hubspot_mcp_adapter import HubSpotMCPAdapter
+        return HubSpotMCPAdapter()
+    return HubSpotCRMAdapter()
+
+
 class Container:
     """Dependency injection container."""
-    
+
     def __init__(self):
         # Infrastructure adapters (outer layer)
         self._observability = LangfuseAdapter()
@@ -25,7 +34,7 @@ class Container:
             crunchbase_path=os.getenv("CRUNCHBASE_DATA_PATH", "data/crunchbase_sample.json"),
             layoffs_path=os.getenv("LAYOFFS_DATA_PATH", "data/layoffs.csv"),
         )
-        self._crm = HubSpotCRMAdapter()
+        self._crm = _build_crm_adapter()
         self._email = MailerSendAdapter()
         self._sms = SMSAdapter()
         self._scheduling = CalComAdapter()
@@ -55,7 +64,7 @@ class Container:
         return self._qualify_prospect
     
     @property
-    def crm(self) -> HubSpotCRMAdapter:
+    def crm(self) -> CRMRepository:
         """Get CRM repository."""
         return self._crm
     

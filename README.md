@@ -149,7 +149,11 @@ Verify: `bash infra/smoke_test.sh`
 | `agent/core/enrichment.py` | Hiring signal pipeline (firmographics, funding, layoffs, jobs, AI maturity, competitor gap) |
 | `agent/core/qualifier.py` | ICP classifier — 4 segments, bench constraint, pitch language |
 | `agent/core/channel_orchestrator.py` | Channel state machine |
-| `agent/integrations/` | HubSpot, MailerSend, Cal.com, SMS, Langfuse clients |
+| `agent/integrations/hubspot_client.py` | HubSpot REST client (default transport) |
+| `agent/integrations/hubspot_mcp_client.py` | HubSpot MCP client (`HUBSPOT_USE_MCP=true`) |
+| `agent/integrations/` | MailerSend, Cal.com, SMS, Langfuse clients |
+| `agent/adapters/gateways/hubspot_crm_adapter.py` | CRMRepository → REST |
+| `agent/adapters/gateways/hubspot_mcp_adapter.py` | CRMRepository → MCP |
 | `agent/adapters/` | Hexagonal architecture adapters |
 | `agent/domain/` | Domain entities, ports, use cases |
 | `agent/config/ai_maturity_config.json` | AI maturity scoring weights (tunable) |
@@ -292,9 +296,10 @@ Harness uses synthetic scores if τ²-Bench is not installed — always runs wit
 | **Cal.com** | Post-qualification only | Confirmed ICP segment |
 | **HubSpot** | Every state transition | Always (non-blocking) |
 
-**Note on HubSpot**: Uses direct Bearer token API (equivalent coverage to MCP 9 tools).
-Same contact lifecycle fields, stage tracking, and enrichment timestamps are written.
-MCP migration path documented in `docs/CONFIGURATION.md`.
+**Note on HubSpot**: Supports two transports — set `HUBSPOT_USE_MCP=true` to route all
+CRM calls through the official `@hubspot/mcp-server` subprocess (Model Context Protocol),
+or leave `false` (default) to use the direct REST API. Both write identical fields and
+emit the same Langfuse traces. See `docs/CONFIGURATION.md` for MCP setup details.
 
 ---
 

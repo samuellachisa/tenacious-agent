@@ -26,10 +26,73 @@ All URLs, API endpoints, and data paths in the tenacious-agent are configurable 
 | `MAILERSEND_API_KEY` | Yes | MailerSend transactional email API key |
 | `AT_API_KEY` | Yes | Africa's Talking SMS API key |
 | `HUBSPOT_ACCESS_TOKEN` | Yes | HubSpot private app access token |
+| `HUBSPOT_USE_MCP` | No | `true` = MCP transport, `false` = REST API (default) |
 | `CALCOM_API_KEY` | Yes | Cal.com API key |
 | `LANGFUSE_PUBLIC_KEY` | Yes | Langfuse observability public key |
 | `LANGFUSE_SECRET_KEY` | Yes | Langfuse observability secret key |
 | `OPENROUTER_API_KEY` | No | OpenRouter LLM API key (optional) |
+
+---
+
+## HubSpot MCP Transport
+
+The HubSpot integration supports two transports, switchable via `HUBSPOT_USE_MCP`:
+
+### Option A — REST API (default, `HUBSPOT_USE_MCP=false`)
+
+Uses `httpx` to call `https://api.hubapi.com` directly. No extra dependencies beyond the Python requirements. Best for environments without Node.js.
+
+### Option B — MCP Transport (`HUBSPOT_USE_MCP=true`)
+
+Uses the [Model Context Protocol](https://modelcontextprotocol.io) to communicate with HubSpot via the official `@hubspot/mcp-server` Node.js subprocess.
+
+**Prerequisites:**
+
+```bash
+# 1. Node.js (v18+) with npx
+node --version   # must be v18+
+
+# 2. Python MCP client
+pip install 'mcp>=1.0.0'
+```
+
+**How it works:**
+
+```
+FastAPI request
+      │
+      ▼
+HubSpotMCPAdapter  (agent/adapters/gateways/hubspot_mcp_adapter.py)
+      │
+      ▼
+hubspot_mcp_client._call_mcp_tool()
+      │  spawns subprocess
+      ▼
+npx @hubspot/mcp-server --access-token <token>
+      │  JSON-RPC over stdio (MCP protocol)
+      ▼
+HubSpot CRM API  (api.hubapi.com)
+```
+
+**MCP tools used:**
+
+| MCP Tool | Maps to |
+|----------|---------|
+| `search_contacts` | Contact lookup by email |
+| `create_contact` | New contact creation |
+| `update_contact` | Contact enrichment updates |
+| `create_deal` | Deal creation |
+| `associate_records` | Deal ↔ contact association |
+
+**Enable MCP:**
+
+```bash
+# .env
+HUBSPOT_USE_MCP=true
+HUBSPOT_ACCESS_TOKEN=your_private_app_token
+```
+
+Both transports write identical fields (`icp_segment`, `ai_maturity_score`, `hs_lead_status`, `enrichment_timestamp`) and emit the same Langfuse trace events — swapping transport requires only the env var change.
 
 ### API URLs
 
