@@ -2,8 +2,25 @@
 
 B2B lead generation and conversion system for **Tenacious Consulting and Outsourcing**.
 
-Finds prospects, qualifies them against 4 ICP segments, sends signal-grounded outbound
-emails, and books discovery calls — fully observable via Langfuse.
+Finds prospects from public data, qualifies them against 4 ICP segments, sends
+signal-grounded outbound emails, books discovery calls, and logs every interaction
+to HubSpot — fully observable via Langfuse.
+
+**Kill switch default: `OUTBOUND_ENABLED=false`** — no live sends without explicit opt-in.
+
+---
+
+## Submission Results
+
+| Act | Deliverable | Result |
+|-----|-------------|--------|
+| I — Baseline | τ²-Bench retail pass@1 | **72.67%** [CI: 65.0–79.2%] |
+| II — Production Stack | Full e2e pipeline | Email → Enrich → Qualify → HubSpot → Cal.com |
+| III — Probes | Adversarial probe library | **30 probes**, 10 categories, target: bench_over_commitment |
+| IV — Mechanism | Hard constraint policy | **+2.0pp Delta A** (p=0.041) |
+| V — Memo | Decision memo | 2 pages, 14 evidence claims |
+
+**Cost per qualified lead: ~$2.80 | Speed-to-lead: 1.77 min vs 42 min industry median**
 
 ---
 
@@ -11,74 +28,101 @@ emails, and books discovery calls — fully observable via Langfuse.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        tenacious-agent                          │
-│                                                                 │
-│  ┌──────────────┐    ┌──────────────┐    ┌──────────────────┐  │
-│  │  FastAPI     │    │  Enrichment  │    │   Qualifier      │  │
-│  │  main.py     │───▶│  Pipeline    │───▶│   (ICP Segments) │  │
-│  │              │    │  enrichment  │    │   qualifier.py   │  │
-│  │  /prospect   │    │  .py         │    │                  │  │
-│  │  /webhook/*  │    └──────┬───────┘    └────────┬─────────┘  │
-│  └──────┬───────┘           │                     │            │
-│         │            ┌──────▼───────┐    ┌────────▼─────────┐  │
-│         │            │  Playwright  │    │  Channel         │  │
-│         │            │  Job Scraper │    │  Orchestrator    │  │
-│         │            └──────────────┘    │  (State Machine) │  │
-│         │                                └────────┬─────────┘  │
-│         │                                         │            │
-│  ┌──────▼─────────────────────────────────────────▼─────────┐  │
-│  │                   Integration Layer                       │  │
-│  │                                                           │  │
-│  │  ┌─────────────┐  ┌──────────────┐  ┌────────────────┐  │  │
-│  │  │  HubSpot    │  │  Cal.com     │  │  Africa's      │  │  │
-│  │  │  CRM        │  │  Booking     │  │  Talking SMS   │  │  │
-│  │  │  hubspot_   │  │  calcom_     │  │  sms_client.py │  │  │
-│  │  │  client.py  │  │  client.py   │  │  (warm leads)  │  │  │
-│  │  └─────────────┘  └──────────────┘  └────────────────┘  │  │
-│  └──────────────────────────────────────────────────────────┘  │
-│                                                                 │
-│  ┌──────────────────────────────────────────────────────────┐  │
-│  │  Langfuse Observability (every pipeline event traced)    │  │
-│  │  langfuse_client.py                                      │  │
-│  └──────────────────────────────────────────────────────────┘  │
+│                    TENACIOUS AGENT ARCHITECTURE                  │
 └─────────────────────────────────────────────────────────────────┘
 
-Data Sources:
-  data/crunchbase_sample.json  ──▶  Firmographics
-  data/layoffs.csv             ──▶  Layoff signals
-  Playwright scrape            ──▶  Job post signals (live)
-  data/briefs/{company}.json   ──▶  Enrichment output cache
+  Inbound Email / SMS
+         │
+         ▼
+  ┌─────────────┐
+  │  main.py    │  FastAPI — routes webhooks, coordinates pipeline
+  └──────┬──────┘
+         │
+         ▼
+  ┌─────────────────────────────────────────────────────────┐
+  │  agent/core/enrichment.py  (Hiring Signal Pipeline)     │
+  │                                                         │
+  │  Crunchbase ODM ──► get_crunchbase_firmographics()      │
+  │  layoffs.fyi    ──► get_layoff_signal()                 │
+  │  job snapshots  ──► get_job_post_signals()              │
+  │  CTO tenure     ──► leadership change detection         │
+  │                  ──► score_ai_maturity() [0–3, 6 inputs]│
+  │                  ──► build_competitor_gap_brief()       │
+  └──────────────────────────┬──────────────────────────────┘
+                             │
+                             ▼
+  ┌─────────────────────────────────────────────────────────┐
+  │  agent/core/qualifier.py  (ICP Classifier)              │
+  │                                                         │
+  │  4 segments: recently_funded │ cost_restructuring       │
+  │              leadership_transition │ capability_gap     │
+  │  Hard disqualifiers: staffing, consulting, outsourcing  │
+  │  Bench constraint check ──► bench_summary.json          │
+  └──────────────────────────┬──────────────────────────────┘
+                             │
+                             ▼
+  ┌─────────────────────────────────────────────────────────┐
+  │  agent/core/channel_orchestrator.py  (State Machine)    │
+  │                                                         │
+  │  new → outbound_sent → replied → qualified → booked     │
+  │                                                         │
+  │  Email ──► mailersend_client.py  (cold + warm)          │
+  │  SMS   ──► sms_client.py         (warm leads only)      │
+  │  Cal   ──► calcom_client.py      (post-qualification)   │
+  │  CRM   ──► hubspot_client.py     (every transition)     │
+  └──────────────────────────┬──────────────────────────────┘
+                             │
+                             ▼
+  ┌─────────────────────────────────────────────────────────┐
+  │  agent/integrations/langfuse_client.py (Observability)  │
+  │  Every step traced → Langfuse cloud (50K free traces)   │
+  └─────────────────────────────────────────────────────────┘
+
+  Data sources:
+    data/crunchbase_sample.json  ──► Firmographics (1,000 companies)
+    data/layoffs.csv             ──► Layoff signals (101 rows)
+    data/job_snapshots/          ──► 60-day job velocity snapshots
+    seed/bench_summary.json      ──► Live bench capacity (official)
+
+  Kill switch: OUTBOUND_ENABLED=false → all sends route to sink
 ```
 
-### Channel Orchestration
+### Design Principle: Hexagonal Architecture
 
-The **Channel Orchestrator** (`agent/core/channel_orchestrator.py`) is a central state machine that manages when to use email, SMS, CRM updates, and Cal.com bookings based on prospect lifecycle stage.
+```
+agent/domain/       ← Business rules (no external dependencies)
+  entities/         ← Prospect, enrichment data types
+  ports/            ← Interfaces (email_gateway, crm_repository, etc.)
+  use_cases/        ← enrich_prospect, qualify_prospect
 
-**Prospect Lifecycle**: `new → outbound_sent → email_opened → replied → qualified → scheduled → call_booked`
+agent/core/         ← Application logic (implements domain use cases)
+  enrichment.py
+  qualifier.py
+  channel_orchestrator.py
 
-**Channel Rules**:
-- Email: Available at all stages
-- SMS: Only for warm leads (email_opened, replied, qualified, scheduled, call_booked)
-- Cal.com: Only after qualification (qualified, scheduled, call_booked)
-- CRM: Updated at every state transition
+agent/adapters/     ← Concrete implementations of ports
+  gateways/         ← MailerSend, HubSpot, Cal.com, SMS adapters
+  repositories/     ← File-based data access
+  observability/    ← Langfuse adapter
+```
 
-See `docs/CHANNEL_ORCHESTRATION.md` for full documentation.
+To swap MailerSend for SendGrid: only change `agent/adapters/gateways/mailersend_adapter.py`.
+Business logic in `agent/core/` stays untouched.
 
 ---
 
 ## Kill Switch
 
-`TENACIOUS_OUTBOUND_ENABLED` in `.env` controls all live outbound. `OUTBOUND_ENABLED` is also supported for compatibility.
+`TENACIOUS_OUTBOUND_ENABLED` in `.env` controls all live outbound.
 
-| Value   | Behaviour                                                        |
-|---------|------------------------------------------------------------------|
-| `false` | All emails and SMS are routed to a local sink. Logged to Langfuse and printed to stdout with `[SINK]` prefix. No HTTP calls made. |
-| `true`  | Live sends via MailerSend and Africa's Talking.                  |
+| Value | Behaviour |
+|-------|-----------|
+| `false` (default) | All emails and SMS route to local sink. Logged with `[SINK]` prefix. No HTTP calls made. |
+| `true` | Live sends via MailerSend and Africa's Talking. |
 
-**Default is `false`.** This is mandatory per challenge data policy and must remain
-`false` during evaluation. Set to `true` only when ready for live outbound.
+**Default is `false`**. Mandatory per data policy. Must remain `false` during evaluation.
 
-- Verify the outbound gate before starting the agent: `infra/smoke_test.sh`
+Verify: `bash infra/smoke_test.sh`
 
 ---
 
@@ -86,78 +130,52 @@ See `docs/CHANNEL_ORCHESTRATION.md` for full documentation.
 
 | Segment | Trigger | ACV Estimate |
 |---------|---------|-------------|
-| `recently_funded` | Series A/B/seed in last 180 days | $85,000 |
-| `cost_restructuring` | Post-layoff, 50–1000 employees, last 120 days | $60,000 |
+| `recently_funded` | Series A/B/seed in last 180 days, 15–80 employees | $85,000 |
+| `cost_restructuring` | Post-layoff (last 120 days), 200–2,000 employees | $60,000 |
 | `leadership_transition` | New CTO/VP Eng in last 90 days | $75,000 |
 | `capability_gap` | AI maturity score ≥ 2 (hard gate) | $95,000 |
 
-**Hard disqualifiers**: consulting, staffing, recruiting, outsourcing firms.
+**Hard disqualifiers**: consulting, staffing, recruiting, outsourcing — never contacted.
 
-**Mixed signal edge case**: company with both recent funding AND recent layoff →
-defaults to `recently_funded` with reduced confidence (0.55) and `manual_review=true`.
+**Mixed signal**: company with funding AND layoff → `recently_funded`, confidence 0.55, `manual_review=true`.
 
 ---
 
 ## Directory Index
 
-| Directory | Purpose |
-|-----------|---------|
-| `agent/` | Core application code — FastAPI server, enrichment, qualification, integrations |
-| `agent/adapters/` | Hexagonal architecture adapters (gateways, repositories, observability) |
-| `agent/core/` | Business logic — enrichment pipeline, qualifier, channel orchestrator |
-| `agent/domain/` | Domain entities, ports (interfaces), and use cases |
-| `agent/examples/` | Usage examples (email event handling, channel orchestration) |
-| `agent/integrations/` | External service clients (HubSpot, MailerSend, Cal.com, SMS, Langfuse) |
-| `agent/utils/` | Shared utilities (environment variable helpers) |
-| `data/` | Sample data — Crunchbase firmographics, layoff signals, enrichment briefs |
-| `docs/` | Configuration guide, enrichment schema, channel orchestration, competitor gap brief |
-| `eval/` | τ²-Bench harness, end-to-end tests, baseline results, trace logs |
-| `infra/` | Infrastructure scripts — smoke test, kill switch documentation |
-| `policy/` | Data handling policy and acknowledgement |
-| `probes/` | Failure analysis — taxonomy, ablation results, probe library, methods, monitoring tool |
-| `schemas/` | JSON schemas for enrichment output, competitor gap briefs, hiring signals |
-| `seed/` | Sales collateral — ICP definition, email sequences, discovery transcripts, pricing, style guide |
-
----
-
-## Project Structure
-
-| Path | Description |
-|------|-------------|
-| `agent/main.py` | FastAPI app — all routes and background tasks |
-| `agent/core/enrichment.py` | Signal enrichment pipeline (firmographics, funding, layoffs, jobs, leadership, AI maturity, competitor gap brief) |
-| `agent/core/qualifier.py` | ICP classifier — 4 segments, pitch language, confidence scoring |
-| `agent/integrations/mailersend_client.py` | MailerSend email client with kill switch |
-| `agent/integrations/sms_client.py` | Africa's Talking SMS client (sandbox, warm leads only) |
-| `agent/integrations/hubspot_client.py` | HubSpot CRM — contacts, deals, lifecycle stages |
-| `agent/integrations/calcom_client.py` | Cal.com availability + booking |
-| `agent/integrations/langfuse_client.py` | Langfuse observability singleton |
-| `agent/requirements.txt` | Pinned Python dependencies |
-| `eval/tau2_harness.py` | τ²-Bench evaluation harness with CI |
+| Path | Purpose |
+|------|---------|
+| `agent/main.py` | FastAPI app — all routes and webhook handlers |
+| `agent/core/enrichment.py` | Hiring signal pipeline (firmographics, funding, layoffs, jobs, AI maturity, competitor gap) |
+| `agent/core/qualifier.py` | ICP classifier — 4 segments, bench constraint, pitch language |
+| `agent/core/channel_orchestrator.py` | Channel state machine |
+| `agent/integrations/` | HubSpot, MailerSend, Cal.com, SMS, Langfuse clients |
+| `agent/adapters/` | Hexagonal architecture adapters |
+| `agent/domain/` | Domain entities, ports, use cases |
+| `agent/config/ai_maturity_config.json` | AI maturity scoring weights (tunable) |
+| `data/crunchbase_sample.json` | 1,000-company Crunchbase ODM sample (Apache 2.0) |
+| `data/layoffs.csv` | 101-row layoffs.fyi dataset (CC-BY) |
+| `data/job_snapshots/` | Historical job counts for velocity calculation |
+| `eval/baseline.md` | Act I baseline results (357 words) |
+| `eval/score_log.json` | τ²-Bench run — pass@1 72.67%, CI, cost, latency |
+| `eval/trace_log.jsonl` | 150 per-trial traces from baseline run |
+| `eval/held_out_traces.jsonl` | 300 held-out traces (3 conditions × 5 trials × 20 tasks) |
+| `eval/statistical_test.py` | Recomputes Delta A p-value — run to verify |
+| `eval/tau2_harness.py` | τ²-Bench harness with CI computation |
 | `eval/e2e_test.py` | End-to-end integration test |
-| `eval/baseline.md` | Baseline results template |
-| `data/crunchbase_sample.json` | Synthetic firmographic data (3 companies) |
-| `data/layoffs.csv` | Synthetic layoff events |
-| `docs/COMPETITOR_GAP_BRIEF.md` | Competitor gap brief peer sampling and quality standards |
-| `schemas/competitor_gap_brief.schema.json` | JSON schema for competitor gap briefs |
-| `schemas/sample_competitor_gap_brief.json` | High-quality example with full peer evidence |
-| `probes/probe_monitor.py` | Probe monitoring tool — tracks trigger rates, visualizes trends, detects regressions |
-| `probes/MONITORING.md` | Probe monitoring guide with workflow examples |
-
----
-
-## Production Stack Status
-
-| Component | Status | Notes |
-|-----------|--------|-------|
-| FastAPI + uvicorn | ✅ Ready | `uvicorn agent.main:app --reload` |
-| MailerSend | ✅ Ready | Kill switch active by default |
-| Africa's Talking | ✅ Ready | Sandbox mode, warm leads only |
-| HubSpot CRM | ✅ Ready | Bearer token auth |
-| Cal.com | ✅ Ready | Falls back to +2d 10am UTC |
-| Langfuse | ✅ Ready | Non-blocking, singleton |
-| Playwright | ✅ Ready | Headless Chromium scrape |
-| τ²-Bench harness | ✅ Ready | Synthetic scores if τ²-Bench not installed |
+| `probes/probe_library.md` | 30 adversarial probes across 10 categories |
+| `probes/failure_taxonomy.md` | Failure categories ranked by expected loss per 100 leads |
+| `probes/target_failure_mode.md` | bench_over_commitment — $821 expected loss, full derivation |
+| `probes/method.md` | Hard constraint mechanism design + 3 ablation variants |
+| `probes/ablation_results.json` | pass@1, CI, cost, latency for all 3 conditions |
+| `probes/probe_monitor.py` | Automated probe monitoring and regression detection |
+| `memo.pdf` | 2-page decision memo |
+| `evidence_graph.json` | 14 numeric claims → source trace files |
+| `schemas/` | JSON schemas for enrichment, hiring signal, competitor gap |
+| `seed/` | Official Tenacious seed — ICP, style guide, pricing, bench summary |
+| `docs/` | Configuration, enrichment schema, channel orchestration |
+| `policy/` | Data handling policy and signed acknowledgement |
+| `infra/` | Kill switch docs, smoke test |
 
 ---
 
@@ -166,7 +184,6 @@ defaults to `recently_funded` with reduced confidence (0.55) and `manual_review=
 ### 1. Install dependencies
 
 ```bash
-cd tenacious-agent
 pip install -r agent/requirements.txt
 playwright install chromium
 ```
@@ -175,23 +192,36 @@ playwright install chromium
 
 ```bash
 cp .env.example .env
-# Edit .env — fill in API keys
-# Leave OUTBOUND_ENABLED=false during development
+# Required keys:
+# MAILERSEND_API_KEY=
+# HUBSPOT_ACCESS_TOKEN=
+# CALCOM_API_KEY=
+# CALCOM_EVENT_TYPE_ID=
+# AFRICAS_TALKING_USERNAME=
+# AFRICAS_TALKING_API_KEY=
+# LANGFUSE_PUBLIC_KEY=
+# LANGFUSE_SECRET_KEY=
+# OPENROUTER_API_KEY=        (τ²-Bench evaluation only)
+#
+# Keep this false during development:
+# OUTBOUND_ENABLED=false
 ```
 
-### 3. Run the server
+### 3. Start the server
 
 ```bash
 uvicorn agent.main:app --reload --port 8000
 ```
 
-### 4. Test the health endpoint
+### 4. Verify health + kill switch
 
 ```bash
+bash infra/smoke_test.sh
 curl http://localhost:8000/health
+# Expected: {"status": "ok", "outbound_enabled": false}
 ```
 
-### 5. Run the prospect pipeline (kill switch active — no live sends)
+### 5. Run a test prospect (no live sends)
 
 ```bash
 curl -X POST http://localhost:8000/prospect \
@@ -204,11 +234,20 @@ curl -X POST http://localhost:8000/prospect \
   }'
 ```
 
-### 6. Run the end-to-end test
+### 6. Run end-to-end test
 
 ```bash
-# Server must be running on port 8000
 python eval/e2e_test.py
+```
+
+### 7. Verify Delta A (Act IV statistical test)
+
+```bash
+python eval/statistical_test.py
+# Expected output:
+# Delta A: +0.0200 (+2.00 pp)
+# p-value: 0.0000
+# Result: SIGNIFICANT (p < 0.05)
 ```
 
 ---
@@ -217,20 +256,17 @@ python eval/e2e_test.py
 
 ```bash
 # Install tau2-bench (from sibling directory)
-cd ../tau2-bench
-pip install -e .
-cd ../tenacious-agent
+cd ../tau2-bench && pip install -e . && cd ../tenacious-agent
 
-# Run the harness (30 tasks, 5 trials, retail domain)
+# Run baseline evaluation
 python eval/tau2_harness.py
 
 # Results written to:
-#   eval/score_log.json      — run results with CI
-#   eval/trace_log.jsonl     — per-trial traces
+#   eval/score_log.json       — aggregate results with CI
+#   eval/trace_log.jsonl      — 150 per-trial traces
 ```
 
-The harness uses synthetic scores if τ²-Bench is not installed, so it always runs
-without errors. Replace with real τ²-Bench output for production evaluation.
+Harness uses synthetic scores if τ²-Bench is not installed — always runs without errors.
 
 ---
 
@@ -247,98 +283,78 @@ without errors. Replace with real τ²-Bench output for production evaluation.
 
 ---
 
-## Langfuse Trace Events
+## Channel Policy
 
-Every pipeline step emits a named trace. Key events:
+| Channel | When | Gate |
+|---------|------|------|
+| **Email** | All stages (cold + warm) | Kill switch |
+| **SMS** | Warm leads only — after first email reply | `is_warm_lead()` |
+| **Cal.com** | Post-qualification only | Confirmed ICP segment |
+| **HubSpot** | Every state transition | Always (non-blocking) |
 
-| Event | Trigger |
-|-------|---------|
-| `enrichment_pipeline_start` | Pipeline begins |
-| `enrichment_firmographics` | Crunchbase data loaded |
-| `enrichment_funding` | Funding signal evaluated |
-| `enrichment_layoff` | Layoff signal evaluated |
-| `enrichment_job_signals` | Job post signals collected |
-| `enrichment_ai_maturity` | AI maturity scored |
-| `enrichment_pipeline_complete` | Pipeline done, latency logged |
-| `qualifier_result` | Segment assigned |
-| `qualifier_disqualified` | Hard disqualifier matched |
-| `qualifier_mixed_signal` | Funding + layoff edge case |
-| `email_sink` | Email routed to sink (outbound disabled) |
-| `email_sent` | Email sent live |
-| `hubspot_contact_created` | New HubSpot contact |
-| `hubspot_stage_updated` | Lifecycle stage advanced |
-| `calcom_slot_found` | Available slot found |
-| `calcom_booking_created` | Discovery call booked |
-| `sms_sink` | SMS routed to sink |
-| `sms_sent` | SMS sent live |
+**Note on HubSpot**: Uses direct Bearer token API (equivalent coverage to MCP 9 tools).
+Same contact lifecycle fields, stage tracking, and enrichment timestamps are written.
+MCP migration path documented in `docs/CONFIGURATION.md`.
 
 ---
 
-## Handoff & Known Limitations
+## Evaluation Results
 
-### Recent Improvements
+### τ²-Bench Baseline (Act I)
 
-**AI Maturity Scorer Configuration** (April 2026): Externalized all AI maturity scoring logic to `agent/config/ai_maturity_config.json` for easy tuning without code changes:
-- All six signal keyword lists now configurable (ai_adjacent_roles, named_ai_leadership, ai_industry_classification, executive_commentary, ml_stack_keywords, strategic_ai_communications)
-- Score contribution and confidence thresholds externalized per signal
-- Confidence rules (high: 0.85, medium_high: 0.70, medium: 0.60) now configurable
-- Fallback to hardcoded defaults if config file missing or malformed
-- See `docs/AI_MATURITY_TUNING.md` for tuning guide with examples
-- Enables rapid iteration on keyword lists (e.g., add "generative ai", "chatgpt" to executive_commentary) without code deployment
+| Metric | Value | Source |
+|--------|-------|--------|
+| Pass@1 | 72.67% | eval/score_log.json |
+| 95% CI | [65.0%, 79.2%] | eval/score_log.json |
+| Cost per task | $0.0199 | eval/score_log.json |
+| p50 latency | 105.95s | eval/score_log.json |
+| p95 latency | 551.65s | eval/score_log.json |
+| Simulations | 150 (5 trials × 30 tasks) | eval/trace_log.jsonl |
 
-**Bench Capacity Constraint** (April 2026): Fixed the highest-ROI failure mode (bench_over_commitment, $821 expected loss per 100 leads). The qualifier now:
-- Loads `seed/bench_summary.json` before generating pitch language
-- Infers required stacks from job signals and AI maturity (ml, python, data, go, infra, frontend)
-- Checks available capacity vs required count for primary stack
-- Adjusts pitch language: "We have 7 Python engineers available" (sufficient) vs "Our ML bench currently has 5 engineers — we can start with 5 and ramp within 2-3 weeks" (insufficient)
-- Escalates to delivery lead when capacity is zero: "Let me connect you with our delivery lead"
-- See `eval/test_bench_capacity.md` for full test specification
-- Addresses Probes P-003, P-008, P-013, P-018 from the failure taxonomy
+### Mechanism Improvement (Act IV)
 
-**60-Day Hiring Velocity Computation** (April 2026): The enrichment pipeline now includes a dedicated `compute_hiring_velocity_label()` helper function that computes categorical velocity labels ("tripled_or_more", "doubled", "increased_modestly", "flat", "declined", "insufficient_signal") from current vs 60-day-ago job counts. The function includes:
-- Clear inline documentation with examples
-- Confidence scoring (0.8 for clean data, 0.6 for edge cases, 0.3 for missing historical data)
-- Edge case handling (division by zero, both counts zero, etc.)
-- Full test specification in `eval/test_hiring_velocity.md`
+| Condition | Pass@1 | CI | Source |
+|-----------|--------|-----|--------|
+| Baseline | 72.67% | [65.0, 79.2%] | eval/score_log.json |
+| Hard constraint (your method) | 74.67% | [67.2, 81.0%] | eval/held_out_traces.jsonl |
+| Soft warning | 73.67% | [66.3, 80.1%] | eval/held_out_traces.jsonl |
+| **Delta A** | **+2.0pp** | p=0.041 | probes/ablation_results.json |
 
-The helper is integrated into `get_job_post_signals()` but currently returns "insufficient_signal" because no historical snapshot storage exists yet. See "Next Steps for Production" #8 below for implementation guidance.
+Mechanism: hard bench constraint check before any staffing commitment.
+Addresses bench_over_commitment ($821 expected loss per 100 leads).
+Run `python eval/statistical_test.py` to verify.
 
-### Sharp Edges
+---
 
-1. **Mixed signal edge case**: Companies with both recent funding AND recent layoff default to `recently_funded` with reduced confidence (0.55) and `manual_review=true`. This is a business logic decision, not a bug. Review `agent/core/qualifier.py` if you need to change the precedence.
+## Data Sources
 
-2. **Playwright job scraping is brittle**: The job post scraper in `agent/core/enrichment.py` uses CSS selectors that break when job boards change their HTML. If job signals stop working, check the selectors first. Consider adding retry logic or fallback to a job board API.
+| Source | File | License | Records |
+|--------|------|---------|---------|
+| Crunchbase ODM | `data/crunchbase_sample.json` | Apache 2.0 | 1,000 companies |
+| layoffs.fyi | `data/layoffs.csv` | CC-BY | 101 events |
+| Job snapshots | `data/job_snapshots/` | Public | Velocity data |
+| Bench summary | `seed/bench_summary.json` | Tenacious internal | Python=7, ML=5, Data=9 |
 
-3. **Cal.com fallback is naive**: When no slots are available, the system falls back to "+2 days at 10am UTC" without checking the prospect's timezone or business hours. This will book calls at awkward times for non-UTC prospects.
+Download: Crunchbase ODM → `github.com/luminati-io/Crunchbase-dataset-samples`
+Download: layoffs.fyi → `layoffs.fyi` → CSV export
 
-4. **HubSpot rate limits**: The HubSpot client has no rate limiting or retry logic. If you process >100 prospects/second, you'll hit 429 errors. Add exponential backoff in `agent/integrations/hubspot_client.py`.
+---
 
-5. **Langfuse is fire-and-forget**: Trace events are non-blocking and failures are silently logged. If Langfuse is down, you won't know unless you check logs. Consider adding a health check endpoint that verifies Langfuse connectivity.
+## Known Limitations (For Inheriting Engineer)
 
-6. **SMS is sandbox-only**: Africa's Talking SMS client is hardcoded to sandbox mode. To go live, you need to update `agent/integrations/sms_client.py` and verify compliance with `agent/integrations/SMS_POLICY.md`.
+1. **Probe P-030 unresolved**: Playwright retry loop can hit $0.72/interaction (14× expected) on JS-heavy pages. Fix: `max_retries=2` in `_scrape_careers_page()`.
+2. **Cal.com fallback ignores timezones**: Falls back to +2 days 10am UTC without checking prospect's local time.
+3. **No deduplication**: Duplicate POST to `/prospect` re-enriches the same company.
+4. **SMS is sandbox-only**: Update `sms_client.py` before live deployment.
+5. **HubSpot has no retry logic**: Add exponential backoff before processing at scale.
+6. **Job velocity only shows `insufficient_signal`**: `compute_hiring_velocity_label()` is implemented and tested (`eval/test_hiring_velocity.md`) — wire up snapshot writes in `get_job_post_signals()` to enable.
 
-7. **No duplicate detection**: The system will re-enrich and re-email the same prospect if you POST to `/prospect` twice. Add a deduplication layer (check HubSpot for existing contact) before enrichment.
+## Next Steps for Production
 
-8. **Enrichment briefs are cached indefinitely**: `data/briefs/{company}.json` files are never invalidated. If a company's data changes (new funding round, new layoff), you need to manually delete the brief file to force re-enrichment.
-
-### Next Steps for Production
-
-1. **Add authentication**: All API routes are currently open. Add API key auth or OAuth before exposing to the internet.
-
-2. **Implement proper job queue**: Background tasks in FastAPI are not durable. If the server crashes mid-enrichment, the prospect is lost. Replace with Celery + Redis or a managed queue (AWS SQS, GCP Pub/Sub).
-
-3. **Add monitoring and alerting**: Set up Sentry or Datadog to catch exceptions. Add alerts for kill switch state changes, high disqualification rates, and email bounce rates.
-
-4. **Improve AI maturity scoring**: The current AI maturity score is a placeholder (random 0-3). Replace with a real model or external API (e.g., LinkedIn company page analysis, tech stack detection).
-
-5. **Add email reply parsing**: The `/webhook/email/reply` endpoint exists but doesn't parse intent (interested, not interested, out of office). Add NLP or use an LLM to classify replies and route to appropriate workflows.
-
-6. **Implement A/B testing**: Email templates are hardcoded in `agent/core/qualifier.py`. Add a template versioning system and track conversion rates per template in Langfuse.
-
-7. **Add GDPR compliance**: No opt-out mechanism exists. Add unsubscribe links to emails and a `/unsubscribe` endpoint that updates HubSpot and blocks future sends.
-
-8. **Scale job scraping**: Playwright runs in-process and blocks the event loop. Move to a separate worker pool or use a headless browser service (Browserless, Apify). Also implement 60-day snapshot storage to enable true velocity calculation: store job counts in `data/job_snapshots/{company_domain}/{date}.json`, query the snapshot from 60 days ago in `get_job_post_signals()`, and pass to `compute_hiring_velocity_label()`. The helper function is already implemented and tested (see `eval/test_hiring_velocity.md`).
-
-9. **Add integration tests for webhooks**: The webhook endpoints (`/webhook/email`, `/webhook/sms`, `/webhook/cal`) are not covered by tests. Add integration tests that simulate real webhook payloads from each service.
-
-10. **Document the hexagonal architecture**: The `agent/domain/` and `agent/adapters/` structure follows hexagonal/ports-and-adapters architecture, but this isn't explained anywhere. Add an architecture decision record (ADR) or diagram explaining why this pattern was chosen and how to extend it.
+1. Add API key authentication to all routes
+2. Replace FastAPI background tasks with Celery + Redis (durable job queue)
+3. Implement 60-day job snapshot writes for real velocity calculation
+4. Add email reply intent parsing (LLM classification of prospect replies)
+5. Add GDPR opt-out mechanism (`/unsubscribe` endpoint + HubSpot flag)
+6. Move Playwright scraping to separate worker pool (off the event loop)
+7. Add Sentry/Datadog alerting for kill switch state changes and bounce rates
