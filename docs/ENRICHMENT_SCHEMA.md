@@ -4,6 +4,11 @@
 
 The enrichment pipeline (`run_enrichment_pipeline()`) produces a standardized JSON artifact with confidence scoring across all signals. This document describes the output schema for downstream consumers (qualifier, outreach composer, CRM sync).
 
+All signals now carry explicit metadata:
+- `source`: Data source identifier (e.g., "crunchbase", "playwright_scrape", "layoffs.fyi")
+- `timestamp`: ISO 8601 timestamp when the signal was collected
+- `confidence`: Numeric confidence score from 0.0 to 1.0
+
 ## Confidence Scoring Standard
 
 All signals use a **numeric confidence score from 0.0 to 1.0**:
@@ -43,6 +48,11 @@ All signals use a **numeric confidence score from 0.0 to 1.0**:
 - 0.7: Month-only precision (YYYY-MM)
 - 0.5: Funding type present but date missing/invalid
 
+**Metadata:**
+- `source`: Always "crunchbase"
+- `timestamp`: ISO 8601 timestamp when signal was collected
+- `confidence`: 0.0-1.0 based on data quality
+
 **Fields:**
 ```json
 {
@@ -51,7 +61,9 @@ All signals use a **numeric confidence score from 0.0 to 1.0**:
   "days_ago": "integer",
   "total_funding_usd": "integer",
   "in_window": "boolean (≤180 days)",
-  "confidence": "0.0-1.0"
+  "confidence": "0.0-1.0",
+  "source": "crunchbase",
+  "timestamp": "ISO 8601"
 }
 ```
 
@@ -62,6 +74,11 @@ All signals use a **numeric confidence score from 0.0 to 1.0**:
 - 0.7: From layoffs.fyi without URL (community-sourced)
 - 0.5: Date parsing ambiguous or month-only precision
 
+**Metadata:**
+- `source`: URL if available, otherwise "layoffs.fyi"
+- `timestamp`: ISO 8601 timestamp when signal was collected
+- `confidence`: 0.0-1.0 based on source verifiability
+
 **Fields:**
 ```json
 {
@@ -70,20 +87,32 @@ All signals use a **numeric confidence score from 0.0 to 1.0**:
   "headcount": "integer",
   "percentage": "number",
   "in_window": "boolean (≤120 days)",
-  "source": "URL string",
-  "confidence": "0.0-1.0"
+  "source": "URL string or 'layoffs.fyi'",
+  "confidence": "0.0-1.0",
+  "timestamp": "ISO 8601"
 }
 ```
 
 ### 3. Job Signals
 
 **Confidence Factors:**
-- 0.9: Playwright scrape (live data from careers page)
+- 0.9: Playwright scrape (live data from careers page, respects robots.txt)
 - 0.6: Crunchbase sample (static snapshot)
 
 **Velocity Confidence:**
 - 0.8: Historical 60-day snapshot available (true velocity)
 - 0.3: Inferred from current count only (no historical data)
+
+**Metadata:**
+- `source`: "playwright_scrape" or "crunchbase_sample"
+- `timestamp`: ISO 8601 timestamp when signal was collected
+- `confidence`: 0.0-1.0 based on data freshness
+
+**Scraping Policy:**
+- Respects robots.txt directives
+- Only accesses publicly available pages
+- Uses identifiable user agent
+- 8-second timeout per page
 
 **Fields:**
 ```json
@@ -94,7 +123,8 @@ All signals use a **numeric confidence score from 0.0 to 1.0**:
   "source": "playwright_scrape | crunchbase_sample",
   "confidence": "0.0-1.0",
   "open_roles_60_days_ago": "integer | null",
-  "velocity_confidence": "0.0-1.0"
+  "velocity_confidence": "0.0-1.0",
+  "timestamp": "ISO 8601"
 }
 ```
 
@@ -105,6 +135,11 @@ All signals use a **numeric confidence score from 0.0 to 1.0**:
 - 0.7: LinkedIn "started new position" inference
 - 0.5: Press release only (no structured data)
 
+**Metadata:**
+- `source`: "crunchbase", "linkedin", or "press_release"
+- `timestamp`: ISO 8601 timestamp when signal was collected
+- `confidence`: 0.0-1.0 based on data source
+
 **Fields:**
 ```json
 {
@@ -112,7 +147,9 @@ All signals use a **numeric confidence score from 0.0 to 1.0**:
   "name": "string",
   "tenure_days": "integer",
   "in_window": "boolean (≤90 days)",
-  "confidence": "0.0-1.0"
+  "confidence": "0.0-1.0",
+  "source": "crunchbase | linkedin | press_release",
+  "timestamp": "ISO 8601"
 }
 ```
 
@@ -129,6 +166,11 @@ All signals use a **numeric confidence score from 0.0 to 1.0**:
 - **MEDIUM (0.6):** Industry classification, Executive commentary
 - **LOW (0.4):** ML stack keywords, Strategic AI communications
 
+**Metadata:**
+- `source`: "ai_maturity_config" (configuration-driven scoring)
+- `timestamp`: ISO 8601 timestamp when signal was scored
+- `confidence`: 0.0-1.0 aggregate confidence
+
 **Fields:**
 ```json
 {
@@ -143,7 +185,9 @@ All signals use a **numeric confidence score from 0.0 to 1.0**:
       "confidence": "0.0-1.0",
       "evidence": "string"
     }
-  ]
+  ],
+  "source": "ai_maturity_config",
+  "timestamp": "ISO 8601"
 }
 ```
 
@@ -169,12 +213,37 @@ overall_confidence =
   ai_conf × 0.25
 ```
 
+**Structured Signals:**
+
+Each signal in the brief now carries explicit metadata:
+
+```json
+{
+  "type": "funding | layoff | leadership | job_signals",
+  "summary": "Human-readable description",
+  "source": "Data source identifier",
+  "timestamp": "ISO 8601 timestamp",
+  "confidence": "0.0-1.0"
+}
+```
+
 **Fields:**
 ```json
 {
-  "summary_signals": ["array of human-readable strings"],
+  "signals": [
+    {
+      "type": "funding",
+      "summary": "Recent Series B ($15M) — 45 days ago",
+      "source": "crunchbase",
+      "timestamp": "2026-04-25T10:30:00Z",
+      "confidence": 1.0
+    }
+  ],
+  "summary_signals": ["array of human-readable strings (backward compatibility)"],
   "ai_maturity_score": "0-3",
   "ai_maturity_confidence": "0.0-1.0",
+  "ai_maturity_source": "ai_maturity_config",
+  "ai_maturity_timestamp": "ISO 8601",
   "employee_count": "integer",
   "industry": "string",
   "country": "string",

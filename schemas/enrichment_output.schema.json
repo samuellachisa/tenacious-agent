@@ -67,6 +67,15 @@
           "minimum": 0.0,
           "maximum": 1.0,
           "description": "Confidence in funding signal: 1.0 for structured Crunchbase data, lower if date parsing ambiguous"
+        },
+        "source": {
+          "type": "string",
+          "description": "Data source for this signal (e.g., 'crunchbase')"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp when this signal was collected"
         }
       }
     },
@@ -79,7 +88,10 @@
         "headcount": {"type": "integer"},
         "percentage": {"type": "number"},
         "in_window": {"type": "boolean"},
-        "source": {"type": "string", "format": "uri"},
+        "source": {
+          "type": "string",
+          "description": "Data source URL or identifier (e.g., 'layoffs.fyi' or specific URL)"
+        },
         "category": {"type": "string"},
         "industry": {"type": "string"},
         "confidence": {
@@ -87,13 +99,18 @@
           "minimum": 0.0,
           "maximum": 1.0,
           "description": "Confidence in layoff signal: 0.9 if source URL present, 0.7 if from layoffs.fyi without URL, 0.5 if date parsing ambiguous"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp when this signal was collected"
         }
       }
     },
     "job_signals": {
       "type": "object",
       "description": "Job posting signals from Playwright scrape + Crunchbase",
-      "required": ["open_roles", "ai_roles", "velocity", "source", "confidence"],
+      "required": ["open_roles", "ai_roles", "velocity", "source", "confidence", "timestamp"],
       "properties": {
         "open_roles": {"type": "integer"},
         "ai_roles": {
@@ -126,6 +143,11 @@
           "minimum": 0.0,
           "maximum": 1.0,
           "description": "Confidence in velocity calculation: 0.8 if historical data available, 0.3 if inferred from current count only"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp when this signal was collected"
         }
       }
     },
@@ -142,13 +164,22 @@
           "minimum": 0.0,
           "maximum": 1.0,
           "description": "0.9 for Crunchbase People data, 0.7 for LinkedIn inference, 0.5 for press release only"
+        },
+        "source": {
+          "type": "string",
+          "description": "Data source for this signal (e.g., 'crunchbase', 'linkedin')"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp when this signal was collected"
         }
       }
     },
     "ai_maturity": {
       "type": "object",
       "description": "AI maturity score 0-3 with per-signal justification",
-      "required": ["score", "confidence", "justification"],
+      "required": ["score", "confidence", "justification", "source", "timestamp"],
       "properties": {
         "score": {
           "type": "integer",
@@ -180,6 +211,15 @@
               "evidence": {"type": "string"}
             }
           }
+        },
+        "source": {
+          "type": "string",
+          "description": "Data source for AI maturity scoring (e.g., 'ai_maturity_config')"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp when this signal was collected"
         }
       }
     },
@@ -189,8 +229,9 @@
     },
     "hiring_signal_brief": {
       "type": "object",
-      "description": "Concise summary for downstream consumers",
+      "description": "Concise summary for downstream consumers with structured signal metadata",
       "required": [
+        "signals",
         "summary_signals",
         "ai_maturity_score",
         "ai_maturity_confidence",
@@ -198,14 +239,56 @@
         "industry"
       ],
       "properties": {
+        "signals": {
+          "type": "array",
+          "description": "Structured signals with source, timestamp, and confidence metadata",
+          "items": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": ["funding", "layoff", "leadership", "job_signals"],
+                "description": "Signal type identifier"
+              },
+              "summary": {
+                "type": "string",
+                "description": "Human-readable signal summary"
+              },
+              "source": {
+                "type": "string",
+                "description": "Data source for this signal"
+              },
+              "timestamp": {
+                "type": "string",
+                "format": "date-time",
+                "description": "ISO 8601 timestamp when signal was collected"
+              },
+              "confidence": {
+                "type": "number",
+                "minimum": 0.0,
+                "maximum": 1.0,
+                "description": "Confidence score for this signal"
+              }
+            }
+          }
+        },
         "summary_signals": {
           "type": "array",
           "items": {"type": "string"},
-          "description": "Human-readable signal summaries"
+          "description": "Human-readable signal summaries (backward compatibility)"
         },
         "ai_maturity_score": {"type": "integer"},
         "ai_maturity_confidence": {"type": "number"},
         "ai_maturity_justification": {"type": "array", "items": {"type": "string"}},
+        "ai_maturity_source": {
+          "type": "string",
+          "description": "Data source for AI maturity scoring"
+        },
+        "ai_maturity_timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp when AI maturity was scored"
+        },
         "employee_count": {"type": "integer"},
         "industry": {"type": "string"},
         "country": {"type": "string"},

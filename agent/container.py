@@ -10,6 +10,7 @@ from agent.adapters.gateways.mailersend_adapter import MailerSendAdapter
 from agent.adapters.gateways.sms_adapter import SMSAdapter
 from agent.adapters.observability.langfuse_adapter import LangfuseAdapter
 from agent.adapters.repositories.file_data_repository import FileDataRepository
+from agent.core.channel_orchestrator import ChannelOrchestrator
 from agent.domain.use_cases.enrich_prospect import EnrichProspect
 from agent.domain.use_cases.qualify_prospect import QualifyProspect
 
@@ -28,6 +29,11 @@ class Container:
         self._email = MailerSendAdapter()
         self._sms = SMSAdapter()
         self._scheduling = CalComAdapter()
+        
+        # Core orchestration (application layer)
+        self._channel_orchestrator = ChannelOrchestrator(
+            observability=self._observability,
+        )
         
         # Use cases (application layer) - inject dependencies
         self._enrich_prospect = EnrichProspect(
@@ -72,6 +78,11 @@ class Container:
     def observability(self) -> LangfuseAdapter:
         """Get observability."""
         return self._observability
+    
+    @property
+    def channel_orchestrator(self) -> ChannelOrchestrator:
+        """Get channel orchestrator."""
+        return self._channel_orchestrator
 
 
 # Global container instance

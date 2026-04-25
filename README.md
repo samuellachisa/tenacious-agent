@@ -21,11 +21,12 @@ emails, and books discovery calls — fully observable via Langfuse.
 │  │  /webhook/*  │    └──────┬───────┘    └────────┬─────────┘  │
 │  └──────┬───────┘           │                     │            │
 │         │            ┌──────▼───────┐    ┌────────▼─────────┐  │
-│         │            │  Playwright  │    │  MailerSend      │  │
-│         │            │  Job Scraper │    │  Email Client    │  │
-│         │            └──────────────┘    └──────────────────┘  │
-│         │                                                       │
-│  ┌──────▼───────────────────────────────────────────────────┐  │
+│         │            │  Playwright  │    │  Channel         │  │
+│         │            │  Job Scraper │    │  Orchestrator    │  │
+│         │            └──────────────┘    │  (State Machine) │  │
+│         │                                └────────┬─────────┘  │
+│         │                                         │            │
+│  ┌──────▼─────────────────────────────────────────▼─────────┐  │
 │  │                   Integration Layer                       │  │
 │  │                                                           │  │
 │  │  ┌─────────────┐  ┌──────────────┐  ┌────────────────┐  │  │
@@ -48,6 +49,20 @@ Data Sources:
   Playwright scrape            ──▶  Job post signals (live)
   data/briefs/{company}.json   ──▶  Enrichment output cache
 ```
+
+### Channel Orchestration
+
+The **Channel Orchestrator** (`agent/core/channel_orchestrator.py`) is a central state machine that manages when to use email, SMS, CRM updates, and Cal.com bookings based on prospect lifecycle stage.
+
+**Prospect Lifecycle**: `new → outbound_sent → email_opened → replied → qualified → scheduled → call_booked`
+
+**Channel Rules**:
+- Email: Available at all stages
+- SMS: Only for warm leads (email_opened, replied, qualified, scheduled, call_booked)
+- Cal.com: Only after qualification (qualified, scheduled, call_booked)
+- CRM: Updated at every state transition
+
+See `docs/CHANNEL_ORCHESTRATION.md` for full documentation.
 
 ---
 
@@ -89,13 +104,13 @@ defaults to `recently_funded` with reduced confidence (0.55) and `manual_review=
 |-----------|---------|
 | `agent/` | Core application code — FastAPI server, enrichment, qualification, integrations |
 | `agent/adapters/` | Hexagonal architecture adapters (gateways, repositories, observability) |
-| `agent/core/` | Business logic — enrichment pipeline and qualifier |
+| `agent/core/` | Business logic — enrichment pipeline, qualifier, channel orchestrator |
 | `agent/domain/` | Domain entities, ports (interfaces), and use cases |
-| `agent/examples/` | Usage examples (email event handling) |
+| `agent/examples/` | Usage examples (email event handling, channel orchestration) |
 | `agent/integrations/` | External service clients (HubSpot, MailerSend, Cal.com, SMS, Langfuse) |
 | `agent/utils/` | Shared utilities (environment variable helpers) |
 | `data/` | Sample data — Crunchbase firmographics, layoff signals, enrichment briefs |
-| `docs/` | Configuration guide, enrichment schema, and competitor gap brief documentation |
+| `docs/` | Configuration guide, enrichment schema, channel orchestration, competitor gap brief |
 | `eval/` | τ²-Bench harness, end-to-end tests, baseline results, trace logs |
 | `infra/` | Infrastructure scripts — smoke test, kill switch documentation |
 | `policy/` | Data handling policy and acknowledgement |

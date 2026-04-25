@@ -120,7 +120,8 @@ def get_funding_event(
     Check whether the company has a Series A/B/seed funding event in the
     last 180 days.
 
-    Returns a dict with: type, date, days_ago, total_funding_usd, in_window, confidence
+    Returns a dict with: type, date, days_ago, total_funding_usd, in_window, 
+                        confidence, source, timestamp
     or None if no qualifying event is found.
     
     Confidence scoring:
@@ -164,6 +165,8 @@ def get_funding_event(
         "total_funding_usd": firmographics.get("total_funding_usd", 0),
         "in_window": in_window,
         "confidence": confidence,
+        "source": "crunchbase",
+        "timestamp": now.isoformat(),
     }
 
 
@@ -175,7 +178,8 @@ def get_layoff_signal(company_name: str) -> dict[str, Any] | None:
     """
     Check the layoffs CSV for a recent layoff event (last 120 days).
 
-    Returns a dict with: date, days_ago, headcount, percentage, in_window, confidence
+    Returns a dict with: date, days_ago, headcount, percentage, in_window, 
+                        confidence, source, timestamp
     or None if no event is found.
     
     Confidence scoring:
@@ -241,10 +245,11 @@ def get_layoff_signal(company_name: str) -> dict[str, Any] | None:
                     "headcount": _safe_int(people_cut),
                     "percentage": _safe_float(percentage_str),
                     "in_window": in_window,
-                    "source": source_url,
+                    "source": source_url if source_url else "layoffs.fyi",
                     "category": row.get("Category", ""),
                     "industry": row.get("Industry", ""),
                     "confidence": confidence,
+                    "timestamp": now.isoformat(),
                 }
     except FileNotFoundError:
         pass
@@ -264,7 +269,8 @@ async def get_job_post_signals(
     a lightweight Playwright scrape of the company's careers page.
 
     Returns: open_roles (int), ai_roles (list), velocity (str),
-             source (str), confidence (float), velocity_confidence (float).
+             source (str), confidence (float), velocity_confidence (float),
+             timestamp (str).
     
     Confidence scoring:
     - Job count confidence: 0.9 for playwright_scrape (live), 0.6 for crunchbase_sample (static)
@@ -312,6 +318,8 @@ async def get_job_post_signals(
         historical_count=open_roles_60_days_ago
     )
 
+    now = datetime.now(timezone.utc)
+
     return {
         "open_roles": open_count,
         "ai_roles": ai_roles,
@@ -320,21 +328,58 @@ async def get_job_post_signals(
         "confidence": confidence,
         "open_roles_60_days_ago": open_roles_60_days_ago,
         "velocity_confidence": velocity_confidence,
+        "timestamp": now.isoformat(),
     }
+
+
+async def _check_robots_txt(website: str, path: str) -> bool:
+    """
+    Check if the given path is allowed by robots.txt.
+    Returns True if allowed (or if robots.txt doesn't exist), False if disallowed.
+    """
+    try:
+        from urllib.robotparser import RobotFileParser
+        from urllib.parse import urljoin
+        import aiohttp
+        
+        robots_url = urljoin(website, "/robots.txt")
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.get(robots_url, timeout=aiohttp.ClientTimeout(total=5)) as response:
+                if response.status == 200:
+                    robots_content = await response.text()
+                    parser = RobotFileParser()
+                    parser.parse(robots_content.splitlines())
+                    # Check for our user agent (use generic bot identifier)
+                    return parser.can_fetch("*", urljoin(website, path))
+                else:
+                    # No robots.txt found, assume allowed
+                    return True
+    except Exception:
+        # On any error, assume allowed (fail open)
+        return True
 
 
 async def _scrape_careers_page(website: str, company_name: str) -> list[str]:
     """
     Attempt a Playwright scrape of the company's /careers or /jobs page.
+    Respects robots.txt and only scrapes publicly accessible pages.
     Returns a list of role title strings, or empty list on failure.
     """
     if not website:
         return []
 
-    careers_urls = [
-        website.rstrip("/") + "/careers",
-        website.rstrip("/") + "/jobs",
-    ]
+    careers_paths = ["/careers", "/jobs"]
+    
+    # Check robots.txt for each path
+    allowed_urls = []
+    for path in careers_paths:
+        if await _check_robots_txt(website, path):
+            allowed_urls.append(website.rstrip("/") + path)
+    
+    if not allowed_urls:
+        # robots.txt disallows scraping these paths
+        return []
 
     try:
         from playwright.async_api import async_playwright  # type: ignore
@@ -342,10 +387,19 @@ async def _scrape_careers_page(website: str, company_name: str) -> list[str]:
         async with async_playwright() as pw:
             browser = await pw.chromium.launch(headless=True)
             page = await browser.new_page()
+            # Set a reasonable user agent
+            await page.set_extra_http_headers({
+                "User-Agent": "Mozilla/5.0 (compatible; TenaciousBot/1.0; +https://tenacious-training.dev/bot)"
+            })
 
-            for url in careers_urls:
+            for url in allowed_urls:
                 try:
-                    await page.goto(url, timeout=8000, wait_until="domcontentloaded")
+                    response = await page.goto(url, timeout=8000, wait_until="domcontentloaded")
+                    
+                    # Check if page is publicly accessible (not behind auth/paywall)
+                    if response and response.status >= 400:
+                        continue
+                    
                     # Extract text from common job listing selectors
                     selectors = [
                         "h2", "h3", ".job-title", ".position-title",
@@ -382,7 +436,8 @@ def get_leadership_change(
     Detect a new CTO or VP Engineering in the last 90 days using
     firmographic data (cto_tenure_days field from Crunchbase sample).
 
-    Returns a dict with: role, name, tenure_days, in_window, confidence
+    Returns a dict with: role, name, tenure_days, in_window, confidence,
+                        source, timestamp
     or None if no qualifying change is detected.
     
     Confidence scoring:
@@ -400,6 +455,7 @@ def get_leadership_change(
     
     # Crunchbase sample provides structured data
     confidence = 0.9
+    now = datetime.now(timezone.utc)
 
     return {
         "role": "CTO",
@@ -407,6 +463,8 @@ def get_leadership_change(
         "tenure_days": tenure_days,
         "in_window": in_window,
         "confidence": confidence,
+        "source": "crunchbase",
+        "timestamp": now.isoformat(),
     }
 
 
@@ -728,11 +786,15 @@ def score_ai_maturity(
     if not justification:
         justification.append("No AI maturity signals detected.")
 
+    now = datetime.now(timezone.utc)
+
     return {
         "score": score,
         "confidence": confidence,
         "justification": justification,
         "signal_breakdown": signal_breakdown,
+        "source": "ai_maturity_config",
+        "timestamp": now.isoformat(),
     }
 
 
@@ -1143,6 +1205,7 @@ def _build_hiring_signal_brief(
 ) -> dict[str, Any]:
     """
     Merge all signals into a concise hiring signal brief with standardized confidence.
+    Each signal in the brief carries source, timestamp, and confidence metadata.
     
     Overall confidence is a weighted average:
     - funding: 20%
@@ -1151,7 +1214,7 @@ def _build_hiring_signal_brief(
     - leadership: 15%
     - ai_maturity: 25%
     """
-    signals: list[str] = []
+    signals: list[dict[str, Any]] = []
     
     # Extract individual confidences
     funding_conf = funding_event.get("confidence", 0.0) if funding_event and funding_event.get("in_window") else 0.0
@@ -1161,31 +1224,55 @@ def _build_hiring_signal_brief(
     ai_conf = ai_maturity.get("confidence", 0.0)
 
     if funding_event and funding_event.get("in_window"):
-        signals.append(
-            f"Recent {funding_event['type'].replace('_', ' ').title()} "
-            f"(${funding_event['total_funding_usd']:,}) — "
-            f"{funding_event['days_ago']} days ago"
-        )
+        signals.append({
+            "type": "funding",
+            "summary": (
+                f"Recent {funding_event['type'].replace('_', ' ').title()} "
+                f"(${funding_event['total_funding_usd']:,}) — "
+                f"{funding_event['days_ago']} days ago"
+            ),
+            "source": funding_event.get("source", "unknown"),
+            "timestamp": funding_event.get("timestamp", ""),
+            "confidence": funding_event.get("confidence", 0.0),
+        })
 
     if layoff_signal and layoff_signal.get("in_window"):
-        signals.append(
-            f"Workforce reduction: {layoff_signal['headcount']} headcount "
-            f"({layoff_signal['percentage']}%) — {layoff_signal['days_ago']} days ago"
-        )
+        signals.append({
+            "type": "layoff",
+            "summary": (
+                f"Workforce reduction: {layoff_signal['headcount']} headcount "
+                f"({layoff_signal['percentage']}%) — {layoff_signal['days_ago']} days ago"
+            ),
+            "source": layoff_signal.get("source", "unknown"),
+            "timestamp": layoff_signal.get("timestamp", ""),
+            "confidence": layoff_signal.get("confidence", 0.0),
+        })
 
     if leadership_change and leadership_change.get("in_window"):
-        signals.append(
-            f"New {leadership_change['role']}: {leadership_change['name']} "
-            f"({leadership_change['tenure_days']} days tenure)"
-        )
+        signals.append({
+            "type": "leadership",
+            "summary": (
+                f"New {leadership_change['role']}: {leadership_change['name']} "
+                f"({leadership_change['tenure_days']} days tenure)"
+            ),
+            "source": leadership_change.get("source", "unknown"),
+            "timestamp": leadership_change.get("timestamp", ""),
+            "confidence": leadership_change.get("confidence", 0.0),
+        })
 
     open_roles = job_signals.get("open_roles", 0)
     ai_roles = job_signals.get("ai_roles", [])
     if open_roles > 0:
-        signals.append(
-            f"{open_roles} open roles detected"
-            + (f", including {len(ai_roles)} AI/ML roles" if ai_roles else "")
-        )
+        signals.append({
+            "type": "job_signals",
+            "summary": (
+                f"{open_roles} open roles detected"
+                + (f", including {len(ai_roles)} AI/ML roles" if ai_roles else "")
+            ),
+            "source": job_signals.get("source", "unknown"),
+            "timestamp": job_signals.get("timestamp", ""),
+            "confidence": job_signals.get("confidence", 0.0),
+        })
 
     # Calculate weighted overall confidence
     overall_confidence = (
@@ -1197,10 +1284,13 @@ def _build_hiring_signal_brief(
     )
 
     return {
-        "summary_signals": signals,
+        "signals": signals,
+        "summary_signals": [s["summary"] for s in signals],  # Backward compatibility
         "ai_maturity_score": ai_maturity.get("score", 0),
         "ai_maturity_confidence": ai_conf,
         "ai_maturity_justification": ai_maturity.get("justification", []),
+        "ai_maturity_source": ai_maturity.get("source", "unknown"),
+        "ai_maturity_timestamp": ai_maturity.get("timestamp", ""),
         "employee_count": firmographics.get("employee_count", 0),
         "industry": firmographics.get("industry", "Unknown"),
         "country": firmographics.get("country", "Unknown"),
