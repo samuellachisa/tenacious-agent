@@ -169,7 +169,8 @@ Verify: `bash infra/smoke_test.sh`
 | `eval/e2e_test.py` | End-to-end integration test |
 | `probes/probe_library.md` | 30 adversarial probes across 10 categories |
 | `probes/failure_taxonomy.md` | Failure categories ranked by expected loss per 100 leads |
-| `probes/target_failure_mode.md` | bench_over_commitment — $821 expected loss, full derivation |
+| `probes/failure_taxonomy_aggregated.json` | Numeric aggregation with economic impact |
+| `probes/target_failure_mode.md` | bench_over_commitment — $821 expected loss, full derivation with Tenacious economics |
 | `probes/method.md` | Hard constraint mechanism design + 3 ablation variants |
 | `probes/ablation_results.json` | pass@1, CI, cost, latency for all 3 conditions |
 | `probes/probe_monitor.py` | Automated probe monitoring and regression detection |
@@ -177,7 +178,7 @@ Verify: `bash infra/smoke_test.sh`
 | `evidence_graph.json` | 14 numeric claims → source trace files |
 | `schemas/` | JSON schemas for enrichment, hiring signal, competitor gap |
 | `seed/` | Official Tenacious seed — ICP, style guide, pricing, bench summary |
-| `docs/` | Configuration, enrichment schema, channel orchestration |
+| `docs/` | Configuration, enrichment schema, channel orchestration, competitor gap brief, failure taxonomy economics |
 | `policy/` | Data handling policy and signed acknowledgement |
 | `infra/` | Kill switch docs, smoke test |
 
