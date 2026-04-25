@@ -364,7 +364,6 @@ async def _handle_reply_pipeline(
 ) -> None:
     """Reply pipeline: stage update → enrich → qualify → book call → confirm."""
     from agent.integrations.calcom_client import book_discovery_call, find_available_slot
-    from agent.integrations.hubspot_client import create_or_update_contact, update_contact_stage
     from agent.integrations.langfuse_client import log_trace
     from agent.integrations.mailersend_client import send_email
     from agent.core.qualifier import qualify_prospect
@@ -372,7 +371,7 @@ async def _handle_reply_pipeline(
     try:
         # Step 1: Update stage to replied
         log_trace("reply_pipeline_step", {"step": "stage_update", "email": from_email})
-        await update_contact_stage(from_email, "replied")
+        await container.crm.update_stage(from_email, "replied")
 
         # Step 2: Enrichment (if company known)
         enrichment: dict[str, Any] = {}
@@ -413,7 +412,7 @@ async def _handle_reply_pipeline(
         print(f"[REPLY PIPELINE] cal booking status={booking.get('status')} error={booking.get('error')}")
 
         # Step 5: Update HubSpot stage to call_booked
-        await update_contact_stage(from_email, "call_booked")
+        await container.crm.update_stage(from_email, "call_booked")
 
         # Step 6: Send confirmation email
         log_trace("reply_pipeline_step", {"step": "confirmation_email", "email": from_email})
@@ -515,7 +514,6 @@ async def _handle_sms_scheduling(from_number: str, text: str) -> None:
 
 async def _handle_cal_booking(payload: dict[str, Any]) -> None:
     """Process Cal.com BOOKING_CREATED — update HubSpot contact and create deal."""
-    from agent.integrations.hubspot_client import create_deal, update_contact_stage
     from agent.integrations.langfuse_client import log_trace
 
     attendees = payload.get("attendees", [])
@@ -533,11 +531,11 @@ async def _handle_cal_booking(payload: dict[str, Any]) -> None:
         return
 
     # Update HubSpot stage
-    await update_contact_stage(email, "call_booked")
+    await container.crm.update_stage(email, "call_booked")
 
     # Create deal
     slot = payload.get("startTime", "")
-    await create_deal(
+    await container.crm.create_deal(
         contact_email=email,
         company=company or name,
         segment="discovery_call",
@@ -557,16 +555,13 @@ async def _handle_cal_booking(payload: dict[str, Any]) -> None:
 
 async def _update_stage_bg(email: str, stage: str) -> None:
     """Background task wrapper for HubSpot stage update."""
-    from agent.integrations.hubspot_client import update_contact_stage
-
-    await update_contact_stage(email, stage)
+    await container.crm.update_stage(email, stage)
 
 
 # ---------------------------------------------------------------------------
 # Email content builders
 # ---------------------------------------------------------------------------
 
-def _build_email_subject(qualification: dict, company_name: str) -> str:
 def _build_email_subject(qualification, company_name: str) -> str:
     segment = qualification.segment
     subject_map = {

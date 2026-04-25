@@ -177,6 +177,17 @@ def infer_required_stacks(enrichment: dict[str, Any]) -> list[str]:
 # Hard disqualifier keywords (industry / description)
 # ---------------------------------------------------------------------------
 
+def _confidence_tier(value: Any) -> str:
+    """Convert float confidence (0.0–1.0) or legacy string tier to 'high'/'medium'/'low'."""
+    if isinstance(value, (int, float)):
+        if value >= 0.75:
+            return "high"
+        if value >= 0.50:
+            return "medium"
+        return "low"
+    return str(value)
+
+
 DISQUALIFIER_KEYWORDS = {
     "consulting",
     "staffing",
@@ -273,7 +284,7 @@ def qualify_prospect(enrichment: dict[str, Any]) -> dict[str, Any]:
     has_recent_layoff = bool(layoff_signal and layoff_signal.get("in_window"))
     has_leadership_change = bool(leadership_change and leadership_change.get("in_window"))
     ai_score: int = ai_maturity.get("score", 0)
-    ai_confidence: str = ai_maturity.get("confidence", "low")
+    ai_confidence: str = _confidence_tier(ai_maturity.get("confidence", 0.0))
 
     if has_recent_funding:
         signals_matched.append(
@@ -700,7 +711,7 @@ def _leadership_confidence(leadership_change: dict) -> float:
 
 def _capability_gap_confidence(ai_maturity: dict, job_signals: dict) -> float:
     score = ai_maturity.get("score", 0)
-    confidence_str = ai_maturity.get("confidence", "low")
+    confidence_str = _confidence_tier(ai_maturity.get("confidence", 0.0))
     open_roles = job_signals.get("open_roles", 0)
 
     base = {3: 0.85, 2: 0.70}.get(score, 0.50)

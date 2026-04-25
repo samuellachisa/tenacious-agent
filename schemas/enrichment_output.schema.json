@@ -120,8 +120,8 @@
         },
         "velocity": {
           "type": "string",
-          "enum": ["high", "medium", "low", "none"],
-          "description": "Hiring velocity: high (10+), medium (5-9), low (1-4), none (0)"
+          "enum": ["tripled_or_more", "doubled", "increased_modestly", "flat", "declined", "insufficient_signal"],
+          "description": "Hiring velocity label from compute_hiring_velocity_label(): tripled_or_more (3×+), doubled (2×), increased_modestly (<2×), flat (±10%), declined, or insufficient_signal (no snapshot)"
         },
         "source": {
           "type": "string",
