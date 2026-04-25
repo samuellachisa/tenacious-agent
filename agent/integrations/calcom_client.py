@@ -12,11 +12,13 @@ from typing import Any
 import httpx
 from dotenv import load_dotenv
 
-from agent.langfuse_client import log_trace
+from agent.integrations.langfuse_client import log_trace
 
 load_dotenv()
 
-CALCOM_V2_BASE = "https://api.cal.com/v2"
+
+def _calcom_base() -> str:
+    return os.getenv("CALCOM_API_URL", "https://api.cal.com/v2")
 
 
 def _api_key() -> str:
@@ -64,7 +66,7 @@ async def find_available_slot(days_ahead: int = 7) -> str | None:
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.get(
-                f"{CALCOM_V2_BASE}/slots/available",
+                f"{_calcom_base()}/slots/available",
                 headers=_headers(),
                 params=params,
             )
@@ -114,7 +116,7 @@ async def book_discovery_call(
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
             response = await client.post(
-                f"{CALCOM_V2_BASE}/bookings",
+                f"{_calcom_base()}/bookings",
                 headers=_headers(),
                 json=payload,
             )

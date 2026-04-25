@@ -13,11 +13,9 @@ from typing import Any
 import httpx
 from dotenv import load_dotenv
 
-from agent.langfuse_client import log_trace
+from agent.integrations.langfuse_client import log_trace
 
 load_dotenv()
-
-HUBSPOT_BASE = "https://api.hubapi.com"
 
 # Internal stage → valid HubSpot hs_lead_status values
 STAGE_TO_HS_STATUS = {
@@ -29,6 +27,10 @@ STAGE_TO_HS_STATUS = {
 }
 
 STAGE_ORDER = list(STAGE_TO_HS_STATUS.keys())
+
+
+def _hubspot_base() -> str:
+    return os.getenv("HUBSPOT_API_URL", "https://api.hubapi.com")
 
 
 def _headers() -> dict[str, str]:
@@ -75,7 +77,7 @@ async def create_contact(properties: dict[str, Any]) -> dict[str, Any]:
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
             response = await client.post(
-                f"{HUBSPOT_BASE}/crm/v3/objects/contacts",
+                f"{_hubspot_base()}/crm/v3/objects/contacts",
                 json=payload,
                 headers=_headers(),
             )
@@ -111,7 +113,7 @@ async def update_contact(
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
             response = await client.patch(
-                f"{HUBSPOT_BASE}/crm/v3/objects/contacts/{contact_id}",
+                f"{_hubspot_base()}/crm/v3/objects/contacts/{contact_id}",
                 json=payload,
                 headers=_headers(),
             )
@@ -173,7 +175,7 @@ async def get_contact_by_email(email: str) -> dict[str, Any] | None:
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
             response = await client.post(
-                f"{HUBSPOT_BASE}/crm/v3/objects/contacts/search",
+                f"{_hubspot_base()}/crm/v3/objects/contacts/search",
                 json=params,
                 headers=_headers(),
             )
@@ -261,7 +263,7 @@ async def create_deal(
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
             deal_response = await client.post(
-                f"{HUBSPOT_BASE}/crm/v3/objects/deals",
+                f"{_hubspot_base()}/crm/v3/objects/deals",
                 json=deal_payload,
                 headers=_headers(),
             )
@@ -283,7 +285,7 @@ async def create_deal(
                     ]
                 }
                 await client.post(
-                    f"{HUBSPOT_BASE}/crm/v3/associations/deals/contacts/batch/create",
+                    f"{_hubspot_base()}/crm/v3/associations/deals/contacts/batch/create",
                     json=assoc_payload,
                     headers=_headers(),
                 )
@@ -358,7 +360,7 @@ async def setup_custom_properties() -> None:
     async with httpx.AsyncClient(timeout=15.0) as client:
         for prop in contact_props:
             r = await client.post(
-                f"{HUBSPOT_BASE}/crm/v3/properties/contacts",
+                f"{_hubspot_base()}/crm/v3/properties/contacts",
                 headers=_headers(),
                 json=prop,
             )
@@ -371,7 +373,7 @@ async def setup_custom_properties() -> None:
 
         for prop in deal_props:
             r = await client.post(
-                f"{HUBSPOT_BASE}/crm/v3/properties/deals",
+                f"{_hubspot_base()}/crm/v3/properties/deals",
                 headers=_headers(),
                 json=prop,
             )

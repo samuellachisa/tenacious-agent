@@ -1,5 +1,6 @@
 """
 Tenacious Agent — FastAPI application entry point.
+Clean Architecture: Framework layer that depends on domain use cases.
 """
 
 from __future__ import annotations
@@ -13,7 +14,8 @@ from fastapi import BackgroundTasks, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, EmailStr
 
-from agent.env_utils import outbound_enabled, outbound_flag_name
+from agent.container import container
+from agent.utils.env_utils import outbound_enabled, outbound_flag_name
 
 load_dotenv()
 
@@ -90,7 +92,7 @@ async def webhook_email(
     Handle MailerSend delivery events: opened, clicked, delivered.
     Updates HubSpot contact stage accordingly.
     """
-    from agent.langfuse_client import log_trace
+    from agent.integrations.langfuse_client import log_trace
 
     stage_map = {
         "opened": "email_opened",
@@ -138,7 +140,7 @@ async def webhook_email_reply(
     5. Send confirmation email (kill-switch aware)
     6. Log all steps to Langfuse
     """
-    from agent.langfuse_client import log_trace
+    from agent.integrations.langfuse_client import log_trace
 
     log_trace(
         "webhook_email_reply_received",
@@ -174,7 +176,7 @@ async def webhook_sms(
     Handle Africa's Talking inbound SMS for warm lead scheduling.
     Parses scheduling intent and responds with confirmation.
     """
-    from agent.langfuse_client import log_trace
+    from agent.integrations.langfuse_client import log_trace
 
     log_trace(
         "webhook_sms_received",
@@ -206,7 +208,7 @@ async def webhook_cal(
     Handle Cal.com BOOKING_CREATED event.
     Updates HubSpot contact stage to 'call_booked' and creates a deal.
     """
-    from agent.langfuse_client import log_trace
+    from agent.integrations.langfuse_client import log_trace
 
     log_trace(
         "webhook_cal_received",
@@ -241,7 +243,7 @@ async def prospect_endpoint(
     4. Send outbound email via MailerSend (kill-switch aware)
     5. Log every step to Langfuse
     """
-    from agent.langfuse_client import log_trace
+    from agent.integrations.langfuse_client import log_trace
 
     log_trace(
         "prospect_endpoint_triggered",
@@ -271,8 +273,6 @@ async def prospect_endpoint(
 
 # ---------------------------------------------------------------------------
 # Background task implementations
-# ---------------------------------------------------------------------------
-
 async def _run_prospect_pipeline(
     company_name: str,
     contact_email: str,
@@ -284,59 +284,51 @@ async def _run_prospect_pipeline(
     """Full prospect pipeline: enrich → qualify → CRM → email."""
     import traceback
 
-    from agent.enrichment import run_enrichment_pipeline
-    from agent.hubspot_client import create_or_update_contact, update_contact_stage
-    from agent.langfuse_client import log_trace
-    from agent.mailersend_client import send_email
-    from agent.qualifier import qualify_prospect
-
     try:
-        # Step 1: Enrichment
-        log_trace("pipeline_step", {"step": "enrichment_start", "company": company_name})
-        enrichment = await run_enrichment_pipeline(company_name)
+        # Step 1: Enrichment (use case)
+        container.observability.log_trace("pipeline_step", {"step": "enrichment_start", "company": company_name})
+        enrichment = await container.enrich_prospect.execute(company_name)
         print(f"[PIPELINE] enrichment done for {company_name}")
 
-        # Step 2: Qualification
-        log_trace("pipeline_step", {"step": "qualification_start", "company": company_name})
-        qualification = qualify_prospect(enrichment)
-        print(f"[PIPELINE] qualification: {qualification.get('segment')} qualified={qualification.get('qualified')}")
+        # Step 2: Qualification (use case)
+        container.observability.log_trace("pipeline_step", {"step": "qualification_start", "company": company_name})
+        qualification = container.qualify_prospect.execute(enrichment)
+        print(f"[PIPELINE] qualification: {qualification.segment} qualified={qualification.qualified}")
 
-        # Step 3: HubSpot contact
-        log_trace("pipeline_step", {"step": "hubspot_upsert", "company": company_name})
-        ai_maturity = enrichment.get("ai_maturity", {})
+        # Step 3: HubSpot contact (gateway)
+        container.observability.log_trace("pipeline_step", {"step": "hubspot_upsert", "company": company_name})
         hubspot_props = {
             "email": contact_email,
             "firstname": first_name,
             "lastname": last_name,
             "company": company_name,
-            "icp_segment": qualification.get("segment") or "not_qualified",
-            "ai_maturity_score": str(ai_maturity.get("score", 0)),
-            "enrichment_timestamp": enrichment.get("enriched_at", ""),
+            "icp_segment": qualification.segment or "not_qualified",
+            "ai_maturity_score": str(enrichment.ai_maturity.score),
+            "enrichment_timestamp": enrichment.enriched_at.isoformat(),
             "lifecyclestage": "lead",
-            "hs_lead_status": "outbound_sent" if qualification.get("qualified") else "not_qualified",
+            "hs_lead_status": "outbound_sent" if qualification.qualified else "not_qualified",
         }
         if phone_number:
             hubspot_props["phone"] = phone_number
 
-        await create_or_update_contact(hubspot_props)
+        await container.crm.create_or_update_contact(hubspot_props)
         print(f"[PIPELINE] HubSpot upsert done for {contact_email}")
 
-        if not qualification.get("qualified"):
-            log_trace(
+        if not qualification.qualified:
+            container.observability.log_trace(
                 "pipeline_not_qualified",
-                {"company": company_name, "reason": qualification.get("reason")},
+                {"company": company_name, "reason": qualification.reason},
             )
-            print(f"[PIPELINE] Not qualified: {qualification.get('reason')}")
+            print(f"[PIPELINE] Not qualified: {qualification.reason}")
             return
 
-        # Step 4: Send outbound email
-        log_trace("pipeline_step", {"step": "email_send", "company": company_name})
+        # Step 4: Send outbound email (gateway)
+        container.observability.log_trace("pipeline_step", {"step": "email_send", "company": company_name})
         subject = _build_email_subject(qualification, company_name)
-        pitch = qualification.get("pitch_language", "")
-        text_body = _build_email_text(first_name, company_name, pitch, qualification)
-        html_body = _build_email_html(first_name, company_name, pitch, qualification)
+        text_body = _build_email_text(first_name, company_name, qualification)
+        html_body = _build_email_html(first_name, company_name, qualification)
 
-        email_result = await send_email(
+        email_result = await container.email.send_email(
             to_email=contact_email,
             subject=subject,
             text=text_body,
@@ -345,18 +337,20 @@ async def _run_prospect_pipeline(
         )
         print(f"[PIPELINE] email status={email_result.get('status')}")
 
-        log_trace(
+        container.observability.log_trace(
             "pipeline_complete",
             {
                 "company": company_name,
-                "segment": qualification.get("segment"),
-                "confidence": qualification.get("confidence"),
-                "acv_estimate": qualification.get("acv_estimate"),
+                "segment": qualification.segment,
+                "confidence": qualification.confidence,
+                "acv_estimate": qualification.acv_estimate,
                 "email_status": email_result.get("status"),
-                "manual_review": qualification.get("manual_review", False),
+                "manual_review": qualification.manual_review,
             },
         )
     except Exception:
+        import traceback
+        print(f"[PIPELINE ERROR] {company_name}:\n{traceback.format_exc()}")
         import traceback
         print(f"[PIPELINE ERROR] {company_name}:\n{traceback.format_exc()}")
 
@@ -369,11 +363,11 @@ async def _handle_reply_pipeline(
     message_preview: str,
 ) -> None:
     """Reply pipeline: stage update → enrich → qualify → book call → confirm."""
-    from agent.calcom_client import book_discovery_call, find_available_slot
-    from agent.hubspot_client import create_or_update_contact, update_contact_stage
-    from agent.langfuse_client import log_trace
-    from agent.mailersend_client import send_email
-    from agent.qualifier import qualify_prospect
+    from agent.integrations.calcom_client import book_discovery_call, find_available_slot
+    from agent.integrations.hubspot_client import create_or_update_contact, update_contact_stage
+    from agent.integrations.langfuse_client import log_trace
+    from agent.integrations.mailersend_client import send_email
+    from agent.core.qualifier import qualify_prospect
 
     try:
         # Step 1: Update stage to replied
@@ -383,7 +377,7 @@ async def _handle_reply_pipeline(
         # Step 2: Enrichment (if company known)
         enrichment: dict[str, Any] = {}
         if company_name:
-            from agent.enrichment import run_enrichment_pipeline
+            from agent.core.enrichment import run_enrichment_pipeline
             log_trace("reply_pipeline_step", {"step": "enrichment", "company": company_name})
             enrichment = await run_enrichment_pipeline(company_name)
         else:
@@ -451,8 +445,13 @@ async def _handle_reply_pipeline(
 
         # Step 7: SMS if phone available (warm lead)
         if phone_number:
-            from agent.sms_client import send_scheduling_sms
-            await send_scheduling_sms(to_number=phone_number, prospect_name=first_name, slot=slot)
+            from agent.integrations.sms_client import send_scheduling_sms
+            await send_scheduling_sms(
+                to_number=phone_number,
+                prospect_name=first_name,
+                slot=slot,
+                contact_email=from_email,
+            )
 
         log_trace(
             "reply_pipeline_complete",
@@ -473,8 +472,8 @@ async def _handle_reply_pipeline(
 
 async def _handle_sms_scheduling(from_number: str, text: str) -> None:
     """Handle inbound SMS — parse scheduling intent and respond."""
-    from agent.langfuse_client import log_trace
-    from agent.sms_client import send_sms
+    from agent.integrations.langfuse_client import log_trace
+    from agent.integrations.sms_client import send_sms
 
     try:
         text_lower = text.lower()
@@ -483,7 +482,7 @@ async def _handle_sms_scheduling(from_number: str, text: str) -> None:
 
         # Parse scheduling keywords
         if any(kw in text_lower for kw in ["schedule", "book", "call", "meeting", "yes", "confirm"]):
-            from agent.calcom_client import find_available_slot
+            from agent.integrations.calcom_client import find_available_slot
 
             slot = await find_available_slot(days_ahead=5)
             slot_friendly = _format_slot(slot) if slot else "soon"
@@ -516,8 +515,8 @@ async def _handle_sms_scheduling(from_number: str, text: str) -> None:
 
 async def _handle_cal_booking(payload: dict[str, Any]) -> None:
     """Process Cal.com BOOKING_CREATED — update HubSpot contact and create deal."""
-    from agent.hubspot_client import create_deal, update_contact_stage
-    from agent.langfuse_client import log_trace
+    from agent.integrations.hubspot_client import create_deal, update_contact_stage
+    from agent.integrations.langfuse_client import log_trace
 
     attendees = payload.get("attendees", [])
     if not attendees:
@@ -558,7 +557,7 @@ async def _handle_cal_booking(payload: dict[str, Any]) -> None:
 
 async def _update_stage_bg(email: str, stage: str) -> None:
     """Background task wrapper for HubSpot stage update."""
-    from agent.hubspot_client import update_contact_stage
+    from agent.integrations.hubspot_client import update_contact_stage
 
     await update_contact_stage(email, stage)
 
@@ -568,7 +567,8 @@ async def _update_stage_bg(email: str, stage: str) -> None:
 # ---------------------------------------------------------------------------
 
 def _build_email_subject(qualification: dict, company_name: str) -> str:
-    segment = qualification.get("segment", "")
+def _build_email_subject(qualification, company_name: str) -> str:
+    segment = qualification.segment
     subject_map = {
         "recently_funded": f"Scaling {company_name}'s engineering team post-funding",
         "cost_restructuring": f"Flexible engineering talent for {company_name}",
@@ -581,20 +581,14 @@ def _build_email_subject(qualification: dict, company_name: str) -> str:
 def _build_email_text(
     first_name: str,
     company_name: str,
-    pitch: str,
-    qualification: dict,
+    qualification,
 ) -> str:
-    segment_name = qualification.get("segment_name", "")
-    acv = qualification.get("acv_estimate", 0)
     return (
         f"Hi {first_name},\n\n"
-        f"{pitch}\n\n"
-        f"Tenacious Consulting places senior engineers and AI/ML specialists "
-        f"directly within your team — typically within 2 weeks.\n\n"
-        f"Would you have 20 minutes this week for a quick discovery call?\n\n"
+        f"{qualification.pitch_language}\n\n"
         f"Best,\nTenacious Consulting Team\n\n"
         f"---\n"
-        f"Segment: {segment_name} | Est. ACV: ${acv:,}\n"
+        f"Segment: {qualification.segment_name} | Est. ACV: ${qualification.acv_estimate:,}\n"
         f"Unsubscribe: reply with UNSUBSCRIBE"
     )
 
@@ -602,20 +596,15 @@ def _build_email_text(
 def _build_email_html(
     first_name: str,
     company_name: str,
-    pitch: str,
-    qualification: dict,
+    qualification,
 ) -> str:
-    pitch_html = pitch.replace("\n\n", "</p><p>").replace("\n", "<br>")
+    pitch_html = qualification.pitch_language.replace("\n\n", "</p><p>").replace("\n", "<br>")
     return (
         f"<p>Hi {first_name},</p>"
         f"<p>{pitch_html}</p>"
-        f"<p>Tenacious Consulting places senior engineers and AI/ML specialists "
-        f"directly within your team — typically within 2 weeks.</p>"
-        f"<p>Would you have 20 minutes this week for a quick discovery call?</p>"
         f"<p>Best,<br><strong>Tenacious Consulting Team</strong></p>"
         f"<hr><small>To unsubscribe, reply with UNSUBSCRIBE.</small>"
     )
-
 
 def _format_slot(slot: str | None) -> str:
     if not slot:

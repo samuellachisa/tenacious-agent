@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from agent.langfuse_client import log_trace
+from agent.integrations.langfuse_client import log_trace
 
 # ---------------------------------------------------------------------------
 # Hard disqualifier keywords (industry / description)
@@ -304,6 +304,7 @@ def build_pitch_language(
     - Never claim "aggressive hiring" if open_roles < 5
     - Segment 4 (capability_gap) only pitched if AI maturity >= 2
     - Language shifts based on AI maturity score
+    - Uses structured competitor gap findings when available
     """
     company = enrichment.get("company", "your company")
     job_signals: dict = enrichment.get("job_signals", {})
@@ -313,6 +314,7 @@ def build_pitch_language(
     funding_event: dict | None = enrichment.get("funding_event")
     layoff_signal: dict | None = enrichment.get("layoff_signal")
     leadership_change: dict | None = enrichment.get("leadership_change")
+    competitor_gap: dict = enrichment.get("competitor_gap", {})
 
     # Hiring velocity language — never assert "aggressive" if < 5 roles
     if open_roles >= 5:
@@ -321,6 +323,28 @@ def build_pitch_language(
         hiring_line = f"with {open_roles} open role(s) on your careers page"
     else:
         hiring_line = "as you scale your team"
+
+    # Check for high-confidence gap findings to enhance pitch
+    gap_findings: list[dict] = competitor_gap.get("gap_findings", [])
+    high_confidence_gaps = [g for g in gap_findings if g.get("confidence") == "high"]
+    
+    # Build gap-aware language if available
+    gap_line = ""
+    if high_confidence_gaps and ai_maturity >= 2:
+        first_gap = high_confidence_gaps[0]
+        practice = first_gap.get("practice", "")
+        peer_count = len(first_gap.get("peer_evidence", []))
+        
+        if peer_count >= 2 and "leadership" in practice.lower():
+            gap_line = (
+                f"\n\nWe've noticed that several peers in your sector have established "
+                f"dedicated AI leadership roles — is this something {company} is considering?"
+            )
+        elif peer_count >= 2 and "hiring" in practice.lower():
+            gap_line = (
+                f"\n\nTop-quartile companies in your space are actively building AI/ML teams — "
+                f"are you finding the right talent quickly enough?"
+            )
 
     # AI maturity language
     if ai_maturity >= 3:
@@ -409,7 +433,32 @@ def build_pitch_language(
 
     elif segment == "capability_gap":
         # Hard gate enforced in qualifier — this branch only reached if ai_maturity >= 2
-        if ai_roles:
+        # Use gap findings if available
+        if high_confidence_gaps:
+            first_gap = high_confidence_gaps[0]
+            practice = first_gap.get("practice", "")
+            
+            if "leadership" in practice.lower():
+                opening = (
+                    f"We've been tracking AI adoption in your sector, and noticed that "
+                    f"several peers have established dedicated AI leadership roles. "
+                    f"Is {company} considering a similar move? "
+                    "Tenacious Consulting can embed senior AI/ML engineers to accelerate "
+                    "your roadmap while you build out permanent leadership."
+                )
+            elif "hiring" in practice.lower():
+                opening = (
+                    f"Top-quartile companies in your space are actively scaling AI/ML teams. "
+                    f"Tenacious Consulting specialises in placing senior AI/ML engineers "
+                    f"who can contribute from day one — typically within 2 weeks."
+                )
+            else:
+                opening = (
+                    f"{company}'s AI maturity signals suggest you're building something ambitious. "
+                    "Tenacious Consulting embeds AI/ML engineers who've shipped production models — "
+                    "no ramp-up time, no equity dilution."
+                )
+        elif ai_roles:
             roles_str = ", ".join(ai_roles[:2])
             opening = (
                 f"We noticed {company} is hiring for {roles_str} — "
@@ -430,7 +479,7 @@ def build_pitch_language(
             "faster and more cost-effectively than traditional hiring."
         )
 
-    return f"{opening}\n\n{ai_line}"
+    return f"{opening}\n\n{ai_line}{gap_line}"
 
 
 # ---------------------------------------------------------------------------

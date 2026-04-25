@@ -1,0 +1,232 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tenacious-training.dev/schemas/enrichment_output.schema.json",
+  "title": "Enrichment Pipeline Output",
+  "description": "Complete output from run_enrichment_pipeline() with standardized confidence scoring across all signals. This is the canonical artifact consumed by the qualifier and outreach composer.",
+  "type": "object",
+  "required": [
+    "company",
+    "enriched_at",
+    "pipeline_latency_ms",
+    "firmographics",
+    "job_signals",
+    "ai_maturity",
+    "hiring_signal_brief"
+  ],
+  "properties": {
+    "company": {
+      "type": "string",
+      "description": "Company name as provided to the pipeline"
+    },
+    "enriched_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "UTC timestamp when enrichment completed"
+    },
+    "pipeline_latency_ms": {
+      "type": "number",
+      "description": "Total pipeline execution time in milliseconds"
+    },
+    "firmographics": {
+      "type": "object",
+      "description": "Static company data from Crunchbase",
+      "required": ["name", "industry", "employee_count"],
+      "properties": {
+        "name": {"type": "string"},
+        "industry": {"type": "string"},
+        "country": {"type": "string"},
+        "city": {"type": "string"},
+        "employee_count": {"type": "integer"},
+        "founded_year": {"type": ["integer", "null"]},
+        "description": {"type": "string"},
+        "website": {"type": "string"},
+        "total_funding_usd": {"type": "integer"},
+        "last_funding_type": {"type": "string"},
+        "last_funding_at": {"type": "string"},
+        "linkedin_url": {"type": "string"},
+        "cto_name": {"type": "string"},
+        "cto_tenure_days": {"type": ["integer", "null"]},
+        "open_roles_raw": {"type": "array", "items": {"type": "string"}},
+        "recent_news": {"type": "string"}
+      }
+    },
+    "funding_event": {
+      "type": ["object", "null"],
+      "description": "Recent funding signal (Series A/B/seed in last 180 days). Null if no qualifying event.",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["series_a", "series_b", "series_c", "seed"]
+        },
+        "date": {"type": "string", "format": "date"},
+        "days_ago": {"type": "integer"},
+        "total_funding_usd": {"type": "integer"},
+        "in_window": {"type": "boolean"},
+        "confidence": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "description": "Confidence in funding signal: 1.0 for structured Crunchbase data, lower if date parsing ambiguous"
+        }
+      }
+    },
+    "layoff_signal": {
+      "type": ["object", "null"],
+      "description": "Recent layoff event (last 120 days). Null if no event found.",
+      "properties": {
+        "date": {"type": "string"},
+        "days_ago": {"type": "integer"},
+        "headcount": {"type": "integer"},
+        "percentage": {"type": "number"},
+        "in_window": {"type": "boolean"},
+        "source": {"type": "string", "format": "uri"},
+        "category": {"type": "string"},
+        "industry": {"type": "string"},
+        "confidence": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "description": "Confidence in layoff signal: 0.9 if source URL present, 0.7 if from layoffs.fyi without URL, 0.5 if date parsing ambiguous"
+        }
+      }
+    },
+    "job_signals": {
+      "type": "object",
+      "description": "Job posting signals from Playwright scrape + Crunchbase",
+      "required": ["open_roles", "ai_roles", "velocity", "source", "confidence"],
+      "properties": {
+        "open_roles": {"type": "integer"},
+        "ai_roles": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "List of AI/ML role titles detected"
+        },
+        "velocity": {
+          "type": "string",
+          "enum": ["high", "medium", "low", "none"],
+          "description": "Hiring velocity: high (10+), medium (5-9), low (1-4), none (0)"
+        },
+        "source": {
+          "type": "string",
+          "enum": ["playwright_scrape", "crunchbase_sample"],
+          "description": "Data source for job signals"
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "description": "0.9 for playwright_scrape (live data), 0.6 for crunchbase_sample (static snapshot)"
+        },
+        "open_roles_60_days_ago": {
+          "type": ["integer", "null"],
+          "description": "Historical snapshot for velocity calculation. Null if unavailable."
+        },
+        "velocity_confidence": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "description": "Confidence in velocity calculation: 0.8 if historical data available, 0.3 if inferred from current count only"
+        }
+      }
+    },
+    "leadership_change": {
+      "type": ["object", "null"],
+      "description": "New CTO/VP Eng in last 90 days. Null if no change detected.",
+      "properties": {
+        "role": {"type": "string"},
+        "name": {"type": "string"},
+        "tenure_days": {"type": "integer"},
+        "in_window": {"type": "boolean"},
+        "confidence": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "description": "0.9 for Crunchbase People data, 0.7 for LinkedIn inference, 0.5 for press release only"
+        }
+      }
+    },
+    "ai_maturity": {
+      "type": "object",
+      "description": "AI maturity score 0-3 with per-signal justification",
+      "required": ["score", "confidence", "justification"],
+      "properties": {
+        "score": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3,
+          "description": "0=no signal, 1=weak, 2=moderate, 3=strong"
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "description": "Aggregate confidence from per-signal votes: 0.85 if 2+ high-weight signals, 0.70 if 1 high + 2 medium, 0.60 if 1 high OR 2+ medium, else average"
+        },
+        "justification": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "One line per signal input with weight label (HIGH/MEDIUM/LOW)"
+        },
+        "signal_breakdown": {
+          "type": "array",
+          "description": "Structured per-signal confidence for downstream consumers",
+          "items": {
+            "type": "object",
+            "properties": {
+              "signal_name": {"type": "string"},
+              "weight": {"type": "string", "enum": ["high", "medium", "low"]},
+              "detected": {"type": "boolean"},
+              "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+              "evidence": {"type": "string"}
+            }
+          }
+        }
+      }
+    },
+    "competitor_gap": {
+      "type": "object",
+      "description": "Competitor gap brief per schemas/competitor_gap_brief.schema.json"
+    },
+    "hiring_signal_brief": {
+      "type": "object",
+      "description": "Concise summary for downstream consumers",
+      "required": [
+        "summary_signals",
+        "ai_maturity_score",
+        "ai_maturity_confidence",
+        "employee_count",
+        "industry"
+      ],
+      "properties": {
+        "summary_signals": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Human-readable signal summaries"
+        },
+        "ai_maturity_score": {"type": "integer"},
+        "ai_maturity_confidence": {"type": "number"},
+        "ai_maturity_justification": {"type": "array", "items": {"type": "string"}},
+        "employee_count": {"type": "integer"},
+        "industry": {"type": "string"},
+        "country": {"type": "string"},
+        "overall_confidence": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "description": "Weighted average of all signal confidences: funding (0.2), layoff (0.15), job_signals (0.25), leadership (0.15), ai_maturity (0.25)"
+        },
+        "confidence_breakdown": {
+          "type": "object",
+          "description": "Per-signal confidence for transparency",
+          "properties": {
+            "funding": {"type": "number"},
+            "layoff": {"type": "number"},
+            "job_signals": {"type": "number"},
+            "leadership": {"type": "number"},
+            "ai_maturity": {"type": "number"}
+          }
+        }
+      }
+    }
+  }
+}

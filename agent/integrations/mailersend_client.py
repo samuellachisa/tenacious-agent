@@ -1,23 +1,71 @@
 """
 MailerSend email client with kill-switch support.
 When TENACIOUS_OUTBOUND_ENABLED=false or OUTBOUND_ENABLED=false, all sends are routed to a local sink.
+
+DOWNSTREAM CONTRACT:
+--------------------
+Reply webhooks (POST /webhook/email/reply) expect:
+  {
+    "from_email": str,           # Required: sender email
+    "from_name": str | None,     # Optional: sender name
+    "company_name": str | None,  # Optional: company context
+    "text": str                  # Required: reply body
+  }
+
+Stage transitions triggered by replies:
+  new → replied → qualified/disqualified → scheduled → booked
+
+Event callbacks can be registered via register_email_event_handler() to extend
+behavior without modifying core send logic.
 """
 
 from __future__ import annotations
 
+import os
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Callable, Awaitable
 
 import httpx
 
-from agent.env_utils import outbound_enabled
-from agent.langfuse_client import log_trace
+from agent.utils.env_utils import outbound_enabled
+from agent.integrations.langfuse_client import log_trace
 
-MAILERSEND_API_URL = "https://api.mailersend.com/v1/email"
+# Event handler registry for extensibility
+_event_handlers: list[Callable[[str, dict[str, Any]], Awaitable[None]]] = []
 
 
 def _outbound_enabled() -> bool:
     return outbound_enabled()
+
+
+def register_email_event_handler(
+    handler: Callable[[str, dict[str, Any]], Awaitable[None]]
+) -> None:
+    """
+    Register a callback to be invoked on email events.
+    
+    Handler signature: async def handler(event_type: str, event_data: dict) -> None
+    
+    Event types: "sent", "sink", "error"
+    Event data includes: to, subject, message_id, status, timestamp, etc.
+    
+    Example:
+        async def log_to_analytics(event_type: str, data: dict) -> None:
+            if event_type == "sent":
+                await analytics.track("email_sent", data)
+        
+        register_email_event_handler(log_to_analytics)
+    """
+    _event_handlers.append(handler)
+
+
+async def _emit_event(event_type: str, event_data: dict[str, Any]) -> None:
+    """Invoke all registered event handlers."""
+    for handler in _event_handlers:
+        try:
+            await handler(event_type, event_data)
+        except Exception as exc:
+            print(f"[EMAIL EVENT] Handler error: {exc}")
 
 
 async def send_email(
@@ -39,6 +87,7 @@ async def send_email(
     from_email = os.getenv("MAILERSEND_FROM_EMAIL", "outbound@tenacious.consulting")
     from_name = os.getenv("MAILERSEND_FROM_NAME", "Tenacious Consulting")
     api_key = os.getenv("MAILERSEND_API_KEY", "")
+    api_url = os.getenv("MAILERSEND_API_URL", "https://api.mailersend.com/v1/email")
 
     payload: dict[str, Any] = {
         "from": {"email": from_email, "name": from_name},
@@ -68,6 +117,7 @@ async def send_email(
                 "reason": "OUTBOUND_ENABLED=false",
             },
         )
+        await _emit_event("sink", sink_result)
         return sink_result
 
     # Live send
@@ -79,7 +129,7 @@ async def send_email(
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
             response = await client.post(
-                MAILERSEND_API_URL, json=payload, headers=headers
+                api_url, json=payload, headers=headers
             )
             response.raise_for_status()
             message_id = response.headers.get("X-Message-Id", "unknown")
@@ -92,6 +142,7 @@ async def send_email(
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }
             log_trace("email_sent", result)
+            await _emit_event("sent", result)
             return result
 
     except httpx.HTTPStatusError as exc:
@@ -105,6 +156,7 @@ async def send_email(
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
         log_trace("email_error", error_result)
+        await _emit_event("error", error_result)
         return error_result
 
     except Exception as exc:
@@ -117,4 +169,5 @@ async def send_email(
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
         log_trace("email_error", error_result)
+        await _emit_event("error", error_result)
         return error_result

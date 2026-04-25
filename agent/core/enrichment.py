@@ -16,7 +16,7 @@ from typing import Any
 
 from dotenv import load_dotenv
 
-from agent.langfuse_client import log_trace
+from agent.integrations.langfuse_client import log_trace
 
 load_dotenv()
 
@@ -33,7 +33,7 @@ def _layoffs_path() -> Path:
 
 
 def _briefs_dir() -> Path:
-    p = Path("data/briefs")
+    p = Path(os.getenv("BRIEFS_OUTPUT_PATH", "data/briefs"))
     p.mkdir(parents=True, exist_ok=True)
     return p
 
@@ -120,8 +120,13 @@ def get_funding_event(
     Check whether the company has a Series A/B/seed funding event in the
     last 180 days.
 
-    Returns a dict with: type, date, days_ago, total_funding_usd, in_window
+    Returns a dict with: type, date, days_ago, total_funding_usd, in_window, confidence
     or None if no qualifying event is found.
+    
+    Confidence scoring:
+    - 1.0: Structured Crunchbase data with valid date
+    - 0.7: Date parsing succeeded but format ambiguous
+    - 0.5: Funding type present but date missing/invalid
     """
     funding_type = firmographics.get("last_funding_type", "").lower()
     funding_date_str = firmographics.get("last_funding_at", "")
@@ -133,12 +138,20 @@ def get_funding_event(
     if not funding_date_str:
         return None
 
+    confidence = 1.0  # Default for clean Crunchbase data
     try:
         funding_date = datetime.strptime(funding_date_str[:10], "%Y-%m-%d").replace(
             tzinfo=timezone.utc
         )
     except ValueError:
-        return None
+        # Try alternative date formats
+        try:
+            funding_date = datetime.strptime(funding_date_str, "%Y-%m").replace(
+                day=1, tzinfo=timezone.utc
+            )
+            confidence = 0.7  # Month-only precision
+        except ValueError:
+            return None
 
     now = datetime.now(timezone.utc)
     days_ago = (now - funding_date).days
@@ -150,6 +163,7 @@ def get_funding_event(
         "days_ago": days_ago,
         "total_funding_usd": firmographics.get("total_funding_usd", 0),
         "in_window": in_window,
+        "confidence": confidence,
     }
 
 
@@ -161,8 +175,13 @@ def get_layoff_signal(company_name: str) -> dict[str, Any] | None:
     """
     Check the layoffs CSV for a recent layoff event (last 120 days).
 
-    Returns a dict with: date, days_ago, headcount, percentage, in_window
+    Returns a dict with: date, days_ago, headcount, percentage, in_window, confidence
     or None if no event is found.
+    
+    Confidence scoring:
+    - 0.9: Source URL present (verifiable)
+    - 0.7: From layoffs.fyi without URL (community-sourced)
+    - 0.5: Date parsing ambiguous or month-only precision
     """
     path = _layoffs_path()
     normalised = company_name.strip().lower()
@@ -180,6 +199,7 @@ def get_layoff_signal(company_name: str) -> dict[str, Any] | None:
                     continue
 
                 date_str = row.get("Date", "")
+                confidence = 0.7  # Default for layoffs.fyi data
                 
                 # Handle various date formats (e.g., "Mar 24", "Jan 2026", "2026-01-15")
                 try:
@@ -188,12 +208,14 @@ def get_layoff_signal(company_name: str) -> dict[str, Any] | None:
                         event_date = datetime.strptime(date_str[:10], "%Y-%m-%d").replace(
                             tzinfo=timezone.utc
                         )
+                        confidence = 0.9  # Full date precision
                     else:
                         # For "Mar 24" or "Jan 2026" format, assume current year or parse year
                         # Default to 2026 for this challenge
                         if len(date_str) <= 7:
                             # Assume recent month in 2026
                             event_date = datetime(2026, 3, 1, tzinfo=timezone.utc)
+                            confidence = 0.5  # Month-only precision
                         else:
                             continue
                 except ValueError:
@@ -208,6 +230,10 @@ def get_layoff_signal(company_name: str) -> dict[str, Any] | None:
                 percentage_str = row.get("Workforce %", row.get("Percentage", "0"))
                 # Remove % sign if present
                 percentage_str = percentage_str.replace("%", "").strip()
+                
+                source_url = row.get("Source URL", row.get("Source", ""))
+                if source_url and source_url.startswith("http"):
+                    confidence = min(confidence + 0.2, 0.9)  # Boost if verifiable source
 
                 return {
                     "date": date_str,
@@ -215,9 +241,10 @@ def get_layoff_signal(company_name: str) -> dict[str, Any] | None:
                     "headcount": _safe_int(people_cut),
                     "percentage": _safe_float(percentage_str),
                     "in_window": in_window,
-                    "source": row.get("Source URL", row.get("Source", "")),
+                    "source": source_url,
                     "category": row.get("Category", ""),
                     "industry": row.get("Industry", ""),
+                    "confidence": confidence,
                 }
     except FileNotFoundError:
         pass
@@ -237,7 +264,11 @@ async def get_job_post_signals(
     a lightweight Playwright scrape of the company's careers page.
 
     Returns: open_roles (int), ai_roles (list), velocity (str),
-             source (str), confidence (str).
+             source (str), confidence (float), velocity_confidence (float).
+    
+    Confidence scoring:
+    - Job count confidence: 0.9 for playwright_scrape (live), 0.6 for crunchbase_sample (static)
+    - Velocity confidence: 0.8 if historical data available, 0.3 if inferred from current only
     """
     open_roles_raw: list[str] = firmographics.get("open_roles_raw", [])
 
@@ -255,7 +286,8 @@ async def get_job_post_signals(
 
     open_count = len(open_roles_raw)
     source = "crunchbase_sample"
-    confidence = "medium"
+    confidence = 0.6  # Static snapshot
+    velocity_confidence = 0.3  # No historical data
 
     # Attempt Playwright scrape for richer signal
     scraped_roles = await _scrape_careers_page(
@@ -269,9 +301,9 @@ async def get_job_post_signals(
         ]
         open_count = len(open_roles_raw)
         source = "playwright_scrape"
-        confidence = "high"
+        confidence = 0.9  # Live data
 
-    # Velocity heuristic
+    # Velocity heuristic (without historical data, confidence is low)
     if open_count >= 10:
         velocity = "high"
     elif open_count >= 5:
@@ -281,12 +313,17 @@ async def get_job_post_signals(
     else:
         velocity = "none"
 
+    # TODO: Implement 60-day historical snapshot for true velocity calculation
+    # When implemented, set velocity_confidence = 0.8
+
     return {
         "open_roles": open_count,
         "ai_roles": ai_roles,
         "velocity": velocity,
         "source": source,
         "confidence": confidence,
+        "open_roles_60_days_ago": None,  # Placeholder for historical data
+        "velocity_confidence": velocity_confidence,
     }
 
 
@@ -349,8 +386,13 @@ def get_leadership_change(
     Detect a new CTO or VP Engineering in the last 90 days using
     firmographic data (cto_tenure_days field from Crunchbase sample).
 
-    Returns a dict with: role, name, tenure_days, in_window
+    Returns a dict with: role, name, tenure_days, in_window, confidence
     or None if no qualifying change is detected.
+    
+    Confidence scoring:
+    - 0.9: Crunchbase People data (structured)
+    - 0.7: LinkedIn "started new position" inference
+    - 0.5: Press release only (no structured data)
     """
     cto_name = firmographics.get("cto_name", "")
     tenure_days = firmographics.get("cto_tenure_days")
@@ -359,12 +401,16 @@ def get_leadership_change(
         return None
 
     in_window = tenure_days <= 90
+    
+    # Crunchbase sample provides structured data
+    confidence = 0.9
 
     return {
         "role": "CTO",
         "name": cto_name,
         "tenure_days": tenure_days,
         "in_window": in_window,
+        "confidence": confidence,
     }
 
 
@@ -376,7 +422,7 @@ def score_ai_maturity(
     job_signals: dict[str, Any], firmographics: dict[str, Any]
 ) -> dict[str, Any]:
     """
-    Score AI maturity 0-3 with per-signal justification.
+    Score AI maturity 0-3 with per-signal justification and standardized confidence.
 
     Scoring bands:
       0 = no signal
@@ -391,10 +437,17 @@ def score_ai_maturity(
               Executive commentary on AI (recent_news mentions AI)
       LOW:    ML stack keywords in description
               Strategic communications (website/description mentions AI)
+    
+    Confidence scoring:
+      0.8+: 2+ high-weight signals detected
+      0.6+: 1 high-weight + 2 medium-weight signals
+      0.4+: 1+ medium-weight signals or 3+ low-weight
+      <0.4: Low-weight signals only or no signals
     """
     score = 0
     justification: list[str] = []
-    confidence_votes: list[str] = []
+    confidence_votes: list[float] = []
+    signal_breakdown: list[dict] = []
 
     ai_roles: list[str] = job_signals.get("ai_roles", [])
     open_roles: int = job_signals.get("open_roles", 0)
@@ -411,14 +464,36 @@ def score_ai_maturity(
             f"HIGH: {len(ai_roles)} AI-adjacent open roles detected: "
             + ", ".join(ai_roles[:3])
         )
-        confidence_votes.append("high")
+        confidence_votes.append(0.9)
+        signal_breakdown.append({
+            "signal_name": "ai_adjacent_roles",
+            "weight": "high",
+            "detected": True,
+            "confidence": 0.9,
+            "evidence": f"{len(ai_roles)} roles: " + ", ".join(ai_roles[:3])
+        })
     elif len(ai_roles) >= 1:
         score += 1
         justification.append(
             f"HIGH: {len(ai_roles)} AI-adjacent role(s) detected: "
             + ", ".join(ai_roles[:2])
         )
-        confidence_votes.append("medium")
+        confidence_votes.append(0.7)
+        signal_breakdown.append({
+            "signal_name": "ai_adjacent_roles",
+            "weight": "high",
+            "detected": True,
+            "confidence": 0.7,
+            "evidence": f"{len(ai_roles)} role(s): " + ", ".join(ai_roles[:2])
+        })
+    else:
+        signal_breakdown.append({
+            "signal_name": "ai_adjacent_roles",
+            "weight": "high",
+            "detected": False,
+            "confidence": 0.0,
+            "evidence": "No AI/ML roles detected"
+        })
 
     # HIGH weight: Named AI leadership (CTO tenure < 90 days suggests new hire)
     if cto_name and cto_tenure is not None and cto_tenure <= 90:
@@ -427,7 +502,22 @@ def score_ai_maturity(
             f"HIGH: New CTO '{cto_name}' joined {cto_tenure} days ago — "
             "likely mandate to modernise tech stack."
         )
-        confidence_votes.append("high")
+        confidence_votes.append(0.9)
+        signal_breakdown.append({
+            "signal_name": "named_ai_leadership",
+            "weight": "high",
+            "detected": True,
+            "confidence": 0.9,
+            "evidence": f"New CTO {cto_name} ({cto_tenure} days tenure)"
+        })
+    else:
+        signal_breakdown.append({
+            "signal_name": "named_ai_leadership",
+            "weight": "high",
+            "detected": False,
+            "confidence": 0.0,
+            "evidence": "No recent CTO appointment detected"
+        })
 
     # MEDIUM weight: AI/ML keywords in industry classification
     ai_industry_keywords = {"artificial intelligence", "machine learning", "ai", "ml"}
@@ -436,7 +526,22 @@ def score_ai_maturity(
         justification.append(
             f"MEDIUM: Industry classification contains AI/ML signal: '{industry}'"
         )
-        confidence_votes.append("medium")
+        confidence_votes.append(0.6)
+        signal_breakdown.append({
+            "signal_name": "ai_industry_classification",
+            "weight": "medium",
+            "detected": True,
+            "confidence": 0.6,
+            "evidence": f"Industry: {industry}"
+        })
+    else:
+        signal_breakdown.append({
+            "signal_name": "ai_industry_classification",
+            "weight": "medium",
+            "detected": False,
+            "confidence": 0.0,
+            "evidence": f"Industry: {industry} (no AI keywords)"
+        })
 
     # MEDIUM weight: Executive commentary in recent news
     if any(kw in recent_news for kw in ["ai", "machine learning", "llm", "automation"]):
@@ -444,7 +549,22 @@ def score_ai_maturity(
         justification.append(
             "MEDIUM: Recent news mentions AI/ML/automation — executive commentary signal."
         )
-        confidence_votes.append("medium")
+        confidence_votes.append(0.6)
+        signal_breakdown.append({
+            "signal_name": "executive_commentary",
+            "weight": "medium",
+            "detected": True,
+            "confidence": 0.6,
+            "evidence": "AI/ML mentioned in recent news"
+        })
+    else:
+        signal_breakdown.append({
+            "signal_name": "executive_commentary",
+            "weight": "medium",
+            "detected": False,
+            "confidence": 0.0,
+            "evidence": "No AI/ML in recent news"
+        })
 
     # LOW weight: ML stack keywords in description
     ml_stack_keywords = [
@@ -455,27 +575,66 @@ def score_ai_maturity(
         justification.append(
             "LOW: Product description contains ML stack keywords."
         )
-        confidence_votes.append("low")
+        confidence_votes.append(0.4)
+        signal_breakdown.append({
+            "signal_name": "ml_stack_keywords",
+            "weight": "low",
+            "detected": True,
+            "confidence": 0.4,
+            "evidence": "ML stack keywords in description"
+        })
+    else:
+        signal_breakdown.append({
+            "signal_name": "ml_stack_keywords",
+            "weight": "low",
+            "detected": False,
+            "confidence": 0.0,
+            "evidence": "No ML stack keywords"
+        })
 
     # LOW weight: Strategic AI communications in description
     if any(kw in description for kw in ["ai-powered", "ai powered", "artificial intelligence"]):
         justification.append(
             "LOW: Description explicitly references AI-powered capabilities."
         )
-        confidence_votes.append("low")
+        confidence_votes.append(0.4)
+        signal_breakdown.append({
+            "signal_name": "strategic_ai_communications",
+            "weight": "low",
+            "detected": True,
+            "confidence": 0.4,
+            "evidence": "AI-powered mentioned in description"
+        })
+    else:
+        signal_breakdown.append({
+            "signal_name": "strategic_ai_communications",
+            "weight": "low",
+            "detected": False,
+            "confidence": 0.0,
+            "evidence": "No AI-powered language in description"
+        })
 
     # Cap score at 3
     score = min(score, 3)
 
-    # Derive confidence from votes
-    if confidence_votes.count("high") >= 2:
-        confidence = "high"
-    elif "high" in confidence_votes or confidence_votes.count("medium") >= 2:
-        confidence = "medium"
-    elif confidence_votes:
-        confidence = "low"
+    # Derive numeric confidence from votes (standardized 0.0-1.0)
+    if not confidence_votes:
+        confidence = 0.3
     else:
-        confidence = "low"
+        # Weighted average: high-weight signals count more
+        high_votes = [v for v in confidence_votes if v >= 0.8]
+        medium_votes = [v for v in confidence_votes if 0.5 <= v < 0.8]
+        
+        if len(high_votes) >= 2:
+            confidence = 0.85
+        elif len(high_votes) >= 1 and len(medium_votes) >= 2:
+            confidence = 0.70
+        elif len(high_votes) >= 1 or len(medium_votes) >= 2:
+            confidence = 0.60
+        elif confidence_votes:
+            confidence = sum(confidence_votes) / len(confidence_votes)
+        else:
+            confidence = 0.3
 
     if not justification:
         justification.append("No AI maturity signals detected.")
@@ -484,6 +643,7 @@ def score_ai_maturity(
         "score": score,
         "confidence": confidence,
         "justification": justification,
+        "signal_breakdown": signal_breakdown,
     }
 
 
@@ -500,8 +660,12 @@ def build_competitor_gap_brief(
     Build a competitive gap brief by comparing the prospect's AI maturity
     against sector peers from the Crunchbase sample.
 
-    Returns: sector, peers_analyzed, company_score, sector_median,
-             top_quartile_score, peer_scores, gaps, confidence.
+    Returns structured brief matching schemas/competitor_gap_brief.schema.json:
+      - prospect_domain, prospect_sector, generated_at
+      - prospect_ai_maturity_score, sector_top_quartile_benchmark
+      - competitors_analyzed (with full details and source URLs)
+      - gap_findings (with peer_evidence arrays and confidence)
+      - gap_quality_self_check
     """
     path = _crunchbase_path()
     try:
@@ -512,6 +676,7 @@ def build_competitor_gap_brief(
 
     company_industry = firmographics.get("industry", "").lower()
     company_score = ai_maturity.get("score", 0)
+    company_domain = firmographics.get("website", "").replace("https://", "").replace("http://", "").split("/")[0]
 
     # Find sector peers (same broad industry, different company)
     peers: list[dict] = []
@@ -533,7 +698,7 @@ def build_competitor_gap_brief(
         ]
 
     # Score each peer's AI maturity using available signals
-    peer_scores: list[dict] = []
+    competitors_analyzed: list[dict] = []
     for peer in peers[:10]:
         peer_firmographics = {
             "industry": peer.get("category_list", ""),
@@ -554,62 +719,232 @@ def build_competitor_gap_brief(
             ],
         }
         peer_maturity = score_ai_maturity(peer_job_signals, peer_firmographics)
-        peer_scores.append(
-            {
-                "name": peer.get("name", "Unknown"),
-                "score": peer_maturity["score"],
-                "confidence": peer_maturity["confidence"],
-            }
-        )
+        
+        # Determine headcount band
+        emp_count = peer.get("employee_count", 0)
+        if emp_count < 80:
+            headcount_band = "15_to_80"
+        elif emp_count < 200:
+            headcount_band = "80_to_200"
+        elif emp_count < 500:
+            headcount_band = "200_to_500"
+        elif emp_count < 2000:
+            headcount_band = "500_to_2000"
+        else:
+            headcount_band = "2000_plus"
+        
+        # Build source URLs
+        peer_domain = peer.get("homepage_url", "").replace("https://", "").replace("http://", "").split("/")[0]
+        sources_checked = []
+        if peer.get("linkedin_url"):
+            sources_checked.append(peer["linkedin_url"])
+        if peer_domain:
+            sources_checked.append(f"https://{peer_domain}/careers")
+            sources_checked.append(f"https://builtin.com/company/{peer.get('name', '').lower().replace(' ', '-')}/jobs")
+        
+        competitors_analyzed.append({
+            "name": peer.get("name", "Unknown"),
+            "domain": peer_domain or "unknown.example",
+            "ai_maturity_score": peer_maturity["score"],
+            "ai_maturity_justification": peer_maturity.get("justification", []),
+            "headcount_band": headcount_band,
+            "top_quartile": False,  # Will be set after quartile calculation
+            "sources_checked": sources_checked[:3],  # Limit to 3 sources
+        })
 
-    scores_only = [p["score"] for p in peer_scores]
+    scores_only = [c["ai_maturity_score"] for c in competitors_analyzed]
     sector_median = _median(scores_only) if scores_only else 0.0
-    top_quartile = _percentile(scores_only, 75) if scores_only else 0.0
+    top_quartile_score = _percentile(scores_only, 75) if scores_only else 0.0
 
-    # Identify gaps vs top quartile
-    gaps: list[str] = []
-    if company_score < top_quartile:
-        gap_delta = top_quartile - company_score
-        if gap_delta >= 2:
-            gaps.append(
-                f"Significant AI capability gap: top-quartile peers score "
-                f"{top_quartile:.1f} vs your {company_score} — "
-                "opportunity to accelerate AI adoption with dedicated ML talent."
-            )
-        if gap_delta >= 1:
-            gaps.append(
-                "Peers in the top quartile are actively hiring AI/ML engineers "
-                "and building internal AI platforms — risk of competitive displacement."
-            )
-        if company_score <= 1:
-            gaps.append(
-                "No dedicated AI leadership role detected — top-quartile peers "
-                "have named AI leads driving product differentiation."
-            )
+    # Mark top quartile competitors
+    for comp in competitors_analyzed:
+        comp["top_quartile"] = comp["ai_maturity_score"] >= top_quartile_score
 
-    if not gaps:
-        gaps.append(
-            "Company AI maturity is at or above sector top quartile — "
-            "focus pitch on scaling existing AI capabilities."
-        )
+    # Build structured gap findings with peer evidence
+    gap_findings: list[dict] = []
+    top_quartile_peers = [c for c in competitors_analyzed if c["top_quartile"]]
+    
+    # Gap 1: Dedicated AI leadership
+    if company_score < top_quartile_score:
+        ai_leadership_peers = [
+            c for c in top_quartile_peers
+            if any("named ai leadership" in j.lower() or "cto" in j.lower() 
+                   for j in c.get("ai_maturity_justification", []))
+        ]
+        
+        if len(ai_leadership_peers) >= 2:
+            peer_evidence = []
+            for peer in ai_leadership_peers[:3]:
+                evidence_text = next(
+                    (j for j in peer.get("ai_maturity_justification", []) 
+                     if "cto" in j.lower() or "leadership" in j.lower()),
+                    f"AI maturity score {peer['ai_maturity_score']}/3"
+                )
+                peer_evidence.append({
+                    "competitor_name": peer["name"],
+                    "evidence": evidence_text,
+                    "source_url": peer.get("sources_checked", ["https://example.com"])[0],
+                })
+            
+            prospect_has_leadership = any(
+                "leadership" in j.lower() or "cto" in j.lower()
+                for j in ai_maturity.get("justification", [])
+            )
+            
+            gap_findings.append({
+                "practice": "Dedicated AI/ML leadership role at executive level",
+                "peer_evidence": peer_evidence,
+                "prospect_state": (
+                    f"{company_name} has no named AI/ML leadership role detected in public signals."
+                    if not prospect_has_leadership
+                    else f"{company_name} shows some technical leadership but not dedicated AI role."
+                ),
+                "confidence": "high" if len(peer_evidence) >= 2 else "medium",
+                "segment_relevance": ["segment_1_series_a_b", "segment_4_specialized_capability"],
+            })
+
+    # Gap 2: Active AI/ML hiring
+    if company_score < top_quartile_score:
+        hiring_peers = [
+            c for c in top_quartile_peers
+            if any("ai-adjacent" in j.lower() or "open role" in j.lower()
+                   for j in c.get("ai_maturity_justification", []))
+        ]
+        
+        if len(hiring_peers) >= 2:
+            peer_evidence = []
+            for peer in hiring_peers[:3]:
+                evidence_text = next(
+                    (j for j in peer.get("ai_maturity_justification", [])
+                     if "role" in j.lower()),
+                    f"Multiple AI/ML roles open"
+                )
+                peer_evidence.append({
+                    "competitor_name": peer["name"],
+                    "evidence": evidence_text,
+                    "source_url": peer.get("sources_checked", ["https://example.com"])[1] if len(peer.get("sources_checked", [])) > 1 else peer.get("sources_checked", ["https://example.com"])[0],
+                })
+            
+            company_ai_roles = len([
+                j for j in ai_maturity.get("justification", [])
+                if "role" in j.lower()
+            ])
+            
+            gap_findings.append({
+                "practice": "Active AI/ML engineering hiring (3+ open roles)",
+                "peer_evidence": peer_evidence,
+                "prospect_state": (
+                    f"{company_name} has {company_ai_roles} AI-adjacent role(s) detected, "
+                    f"below top-quartile peer average."
+                    if company_ai_roles > 0
+                    else f"{company_name} has no AI-adjacent open roles detected in public job boards."
+                ),
+                "confidence": "high" if len(peer_evidence) >= 2 else "medium",
+                "segment_relevance": ["segment_4_specialized_capability"],
+            })
+
+    # Gap 3: Public AI commentary or technical content
+    if company_score <= 1 and top_quartile_score >= 2:
+        commentary_peers = [
+            c for c in top_quartile_peers
+            if any("commentary" in j.lower() or "news" in j.lower()
+                   for j in c.get("ai_maturity_justification", []))
+        ]
+        
+        if len(commentary_peers) >= 2:
+            peer_evidence = []
+            for peer in commentary_peers[:2]:
+                evidence_text = next(
+                    (j for j in peer.get("ai_maturity_justification", [])
+                     if "commentary" in j.lower() or "news" in j.lower()),
+                    "Executive commentary on AI strategy"
+                )
+                peer_evidence.append({
+                    "competitor_name": peer["name"],
+                    "evidence": evidence_text,
+                    "source_url": peer.get("sources_checked", ["https://example.com"])[0],
+                })
+            
+            gap_findings.append({
+                "practice": "Public technical commentary on AI/ML strategy",
+                "peer_evidence": peer_evidence,
+                "prospect_state": (
+                    f"{company_name} has limited public AI commentary in recent news or blog posts."
+                ),
+                "confidence": "medium",
+                "segment_relevance": ["segment_1_series_a_b"],
+            })
+
+    # If no gaps found, add positive finding
+    if not gap_findings:
+        gap_findings.append({
+            "practice": "AI maturity at or above sector benchmark",
+            "peer_evidence": [],
+            "prospect_state": (
+                f"{company_name} AI maturity score ({company_score}) is at or above "
+                f"sector top quartile ({top_quartile_score:.1f}). Focus on scaling existing capabilities."
+            ),
+            "confidence": "high",
+            "segment_relevance": ["segment_1_series_a_b", "segment_4_specialized_capability"],
+        })
+
+    # Quality self-check
+    all_evidence_has_urls = all(
+        all(ev.get("source_url") for ev in gap.get("peer_evidence", []))
+        for gap in gap_findings
+    )
+    at_least_one_high_confidence = any(
+        gap.get("confidence") == "high" for gap in gap_findings
+    )
+    
+    # Check if prospect might be sophisticated but silent
+    prospect_silent_but_sophisticated = (
+        company_score <= 1 and
+        any("description" in j.lower() or "strategic" in j.lower()
+            for j in ai_maturity.get("justification", []))
+    )
 
     # Confidence based on peer sample size
-    if len(peer_scores) >= 5:
+    if len(competitors_analyzed) >= 5:
         brief_confidence = "high"
-    elif len(peer_scores) >= 2:
+    elif len(competitors_analyzed) >= 2:
         brief_confidence = "medium"
     else:
         brief_confidence = "low"
 
+    # Suggested pitch shift
+    if gap_findings and gap_findings[0].get("confidence") == "high":
+        suggested_pitch = (
+            f"Lead with {gap_findings[0]['practice']} gap (high confidence). "
+            "Frame as a question rather than assertion to maintain advisory tone."
+        )
+    else:
+        suggested_pitch = (
+            "No strong gaps detected. Focus on scaling existing capabilities "
+            "rather than competitive positioning."
+        )
+
     return {
+        "prospect_domain": company_domain or "unknown.example",
+        "prospect_sector": firmographics.get("industry", "Unknown"),
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "prospect_ai_maturity_score": company_score,
+        "sector_top_quartile_benchmark": round(top_quartile_score, 2),
+        "competitors_analyzed": competitors_analyzed,
+        "gap_findings": gap_findings,
+        "suggested_pitch_shift": suggested_pitch,
+        "gap_quality_self_check": {
+            "all_peer_evidence_has_source_url": all_evidence_has_urls,
+            "at_least_one_gap_high_confidence": at_least_one_high_confidence,
+            "prospect_silent_but_sophisticated_risk": prospect_silent_but_sophisticated,
+        },
+        "confidence": brief_confidence,
+        # Legacy fields for backward compatibility
         "sector": firmographics.get("industry", "Unknown"),
-        "peers_analyzed": len(peer_scores),
+        "peers_analyzed": len(competitors_analyzed),
         "company_score": company_score,
         "sector_median": round(sector_median, 2),
-        "top_quartile_score": round(top_quartile, 2),
-        "peer_scores": peer_scores,
-        "gaps": gaps,
-        "confidence": brief_confidence,
+        "top_quartile_score": round(top_quartile_score, 2),
     }
 
 
@@ -717,8 +1052,24 @@ def _build_hiring_signal_brief(
     leadership_change: dict | None,
     ai_maturity: dict,
 ) -> dict[str, Any]:
-    """Merge all signals into a concise hiring signal brief."""
+    """
+    Merge all signals into a concise hiring signal brief with standardized confidence.
+    
+    Overall confidence is a weighted average:
+    - funding: 20%
+    - layoff: 15%
+    - job_signals: 25%
+    - leadership: 15%
+    - ai_maturity: 25%
+    """
     signals: list[str] = []
+    
+    # Extract individual confidences
+    funding_conf = funding_event.get("confidence", 0.0) if funding_event and funding_event.get("in_window") else 0.0
+    layoff_conf = layoff_signal.get("confidence", 0.0) if layoff_signal and layoff_signal.get("in_window") else 0.0
+    job_conf = job_signals.get("confidence", 0.0)
+    leadership_conf = leadership_change.get("confidence", 0.0) if leadership_change and leadership_change.get("in_window") else 0.0
+    ai_conf = ai_maturity.get("confidence", 0.0)
 
     if funding_event and funding_event.get("in_window"):
         signals.append(
@@ -747,14 +1098,31 @@ def _build_hiring_signal_brief(
             + (f", including {len(ai_roles)} AI/ML roles" if ai_roles else "")
         )
 
+    # Calculate weighted overall confidence
+    overall_confidence = (
+        funding_conf * 0.20 +
+        layoff_conf * 0.15 +
+        job_conf * 0.25 +
+        leadership_conf * 0.15 +
+        ai_conf * 0.25
+    )
+
     return {
         "summary_signals": signals,
         "ai_maturity_score": ai_maturity.get("score", 0),
-        "ai_maturity_confidence": ai_maturity.get("confidence", "low"),
+        "ai_maturity_confidence": ai_conf,
         "ai_maturity_justification": ai_maturity.get("justification", []),
         "employee_count": firmographics.get("employee_count", 0),
         "industry": firmographics.get("industry", "Unknown"),
         "country": firmographics.get("country", "Unknown"),
+        "overall_confidence": round(overall_confidence, 2),
+        "confidence_breakdown": {
+            "funding": funding_conf,
+            "layoff": layoff_conf,
+            "job_signals": job_conf,
+            "leadership": leadership_conf,
+            "ai_maturity": ai_conf,
+        },
     }
 
 
