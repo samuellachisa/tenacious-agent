@@ -1,0 +1,603 @@
+Sector,Company Size Band,AI Readiness Band,Cell Population,Avg Funding,Avg Hiring Velocity,Avg Bench-Match Score
+Unknown,Unknown,1,25,0.0,1.89,7.8
+Consulting,1-10,0,19,84210.53,0.25,5.05
+Unknown,Unknown,0,18,0.0,0.64,5.78
+Advertising,1-10,1,13,53846.15,2.48,6.92
+Consulting,1-10,1,10,0.0,1.87,7.0
+Advertising,1-10,0,9,0.0,0.58,4.89
+Consulting,11-50,1,8,0.0,2.25,7.25
+Health Care,11-50,0,8,975000.0,0.43,4.12
+Financial Services,1-10,0,8,0.0,0.29,4.75
+Artificial Intelligence (AI),1-10,1,7,453571.43,2.46,6.14
+Health Care,11-50,1,7,0.0,1.79,6.86
+Unknown,1-10,0,7,35714285.71,0.27,6.57
+Apps,1-10,1,6,341666.67,1.76,6.67
+Health Care,1-10,1,6,1166666.67,2.05,7.33
+Unknown,1-10,1,6,89833.33,1.05,6.33
+Advice,1-10,0,6,0.0,0.1,4.5
+Information Technology,1-10,1,5,0.0,1.71,7.6
+Building Material,11-50,0,5,0.0,0.26,4.0
+E-Commerce,1-10,0,5,200000.0,0.46,5.0
+Finance,1-10,0,5,0.0,0.24,5.8
+Advice,11-50,0,5,0.0,-0.27,5.4
+Manufacturing,11-50,1,5,0.0,1.72,5.2
+Construction,11-50,1,5,0.0,1.84,6.4
+Consulting,11-50,0,5,0.0,0.56,4.6
+Financial Services,11-50,1,5,0.0,2.07,5.6
+Financial Services,11-50,0,5,0.0,0.44,7.6
+Finance,Unknown,1,5,0.0,2.15,8.8
+Unknown,Unknown,2,4,0.0,2.92,6.5
+E-Commerce,Unknown,0,4,0.0,0.08,6.75
+Information Technology,1-10,0,4,0.0,0.38,2.75
+Industrial,11-50,0,4,0.0,0.76,4.5
+Unknown,11-50,0,4,0.0,0.45,3.75
+Industrial,1-10,1,4,0.0,1.86,6.5
+B2B,11-50,0,4,0.0,0.26,6.25
+Digital Marketing,11-50,1,4,0.0,1.8,7.25
+Electronics,11-50,0,4,0.0,0.28,6.5
+E-Commerce,1-10,1,4,0.0,1.55,7.0
+Commercial,11-50,0,4,0.0,0.45,5.5
+Information Technology,11-50,0,4,0.0,0.33,5.5
+Health Care,Unknown,1,4,22500000.0,1.66,6.75
+Software,Unknown,0,4,0.0,0.61,7.0
+Consulting,Unknown,1,4,0.0,2.02,8.0
+Banking,101-250,0,4,0.0,0.45,5.0
+Advice,11-50,1,4,0.0,2.28,7.25
+Construction,1-10,0,4,0.0,0.34,5.25
+Unknown,11-50,1,4,0.0,2.44,6.0
+Advertising,11-50,1,4,0.0,2.08,6.0
+Industrial,11-50,1,3,0.0,1.94,8.33
+Consulting,1-10,2,3,0.0,1.46,9.67
+Architecture,11-50,0,3,0.0,0.01,3.0
+Internet,1-10,1,3,6333333.33,2.38,6.67
+Apps,1-10,2,3,6666.67,2.62,9.33
+Food and Beverage,Unknown,0,3,0.0,0.61,6.67
+Advertising,11-50,0,3,0.0,0.55,5.0
+Education,1-10,0,3,1000000.0,1.0,4.33
+Food and Beverage,11-50,1,3,0.0,2.33,8.33
+Automotive,1-10,1,3,8823666.67,1.09,9.33
+Education,1-10,1,3,0.0,2.14,7.0
+Information Technology,11-50,1,3,0.0,1.92,7.33
+Education,11-50,0,3,0.0,-0.24,3.33
+Internet,1-10,0,3,0.0,0.99,8.67
+Health Care,1-10,0,3,0.0,0.43,6.67
+Software,1-10,0,3,0.0,0.49,6.67
+Logistics,1-10,1,3,0.0,2.15,7.33
+Electronics,500+,0,3,0.0,0.27,2.67
+Property Management,11-50,1,3,0.0,1.44,6.33
+Property Management,1-10,1,3,0.0,2.27,8.33
+Property Management,11-50,0,3,0.0,-0.2,8.67
+Analytics,1-10,1,3,0.0,2.06,5.67
+Unknown,11-50,2,3,0.0,1.6,8.33
+Dental,11-50,0,3,0.0,0.73,6.33
+Asset Management,1-10,1,3,0.0,2.39,5.33
+Biotechnology,1-10,1,3,1247916.67,1.06,8.0
+Financial Services,1-10,1,3,0.0,2.17,8.33
+Education,Unknown,1,3,0.0,3.08,8.33
+Computer,1-10,0,2,0.0,0.22,3.0
+Apps,11-50,0,2,0.0,-0.26,5.5
+Energy,101-250,1,2,0.0,0.94,9.0
+Dental,1-10,1,2,0.0,1.98,6.0
+Unknown,1-10,2,2,0.0,2.14,8.0
+Recycling,11-50,1,2,0.0,3.15,5.5
+Data Center,1-10,1,2,2049999.5,1.45,10.0
+Beauty,1-10,1,2,0.0,2.13,9.5
+Commercial Real Estate,11-50,1,2,0.0,3.19,3.5
+Customer Service,11-50,1,2,0.0,1.88,9.5
+Elder Care,1-10,0,2,0.0,0.82,4.5
+Advice,Unknown,0,2,0.0,0.63,5.0
+Property Management,Unknown,1,2,0.0,2.96,6.5
+Building Material,101-250,1,2,0.0,1.74,9.0
+Advertising,1-10,2,2,7500000.0,1.5,9.5
+EdTech,101-250,0,2,15000000.0,0.69,6.0
+Graphic Design,11-50,0,2,0.0,0.26,4.5
+Biotechnology,101-250,0,2,50000000.0,0.22,7.0
+Software,1-10,1,2,0.0,1.88,9.0
+Accounting,Unknown,0,2,0.0,0.64,6.0
+Health Care,Unknown,2,2,0.0,2.13,8.5
+Accounting,Unknown,1,2,0.0,1.1,6.5
+Education,101-250,0,2,0.0,1.0,3.5
+Business Development,11-50,1,2,1300000.0,1.32,10.0
+Business Development,11-50,0,2,0.0,0.55,5.0
+Advice,1-10,1,2,0.0,1.83,4.5
+Consumer,1-10,2,2,0.0,1.73,9.5
+Communities,11-50,1,2,100000.0,2.9,5.0
+Dental,11-50,1,2,0.0,1.94,9.5
+Electronics,1-10,0,2,0.0,0.86,4.0
+Banking,11-50,0,2,0.0,-0.12,6.0
+Financial Services,Unknown,0,2,1725000.0,0.14,3.0
+Food and Beverage,101-250,0,2,0.0,0.65,4.5
+Computer,11-50,0,2,0.0,0.52,9.5
+Architecture,11-50,1,2,0.0,1.69,10.0
+Dental,11-50,2,2,0.0,1.73,10.0
+Real Estate,Unknown,1,2,0.0,1.21,9.0
+Automotive,Unknown,0,2,0.0,0.37,6.5
+E-Commerce,1-10,2,2,0.0,1.71,9.5
+Finance,101-250,1,2,0.0,2.81,9.0
+Finance,1-10,1,2,0.0,1.08,6.0
+E-Commerce,11-50,0,2,0.0,0.46,6.5
+Credit,11-50,1,2,0.0,2.02,7.5
+Accounting,1-10,2,2,0.0,2.36,5.0
+Business Development,1-10,1,2,0.0,2.01,9.5
+Information Technology,101-250,0,2,0.0,-0.14,6.0
+Fashion,Unknown,0,2,0.0,-0.03,2.5
+Business Development,1-10,0,2,0.0,0.56,5.0
+Biotechnology,1-10,0,2,0.0,0.39,5.0
+Communities,1-10,0,2,125000.0,0.56,8.0
+3D Technology,11-50,0,2,0.0,0.21,6.0
+Health Care,1-10,2,2,0.0,2.37,10.0
+Blockchain,11-50,1,2,0.0,1.87,8.0
+Advice,1-10,2,2,0.0,2.1,8.5
+E-Commerce,11-50,1,2,0.0,2.92,6.5
+Analytics,11-50,1,2,0.0,2.54,7.0
+Construction,101-250,0,2,0.0,0.37,2.5
+Construction,1-10,1,2,0.0,1.36,8.0
+Commercial,1-10,0,2,0.0,0.97,4.5
+Consulting,11-50,2,2,0.0,1.71,8.0
+Computer,Unknown,1,2,0.0,2.61,10.0
+Analytics,1-10,0,2,0.0,0.44,4.5
+Construction,11-50,0,2,0.0,1.16,4.0
+Auto Insurance,1-10,1,2,0.0,2.66,9.5
+Accounting,11-50,1,2,0.0,1.91,8.0
+Finance,11-50,0,2,50000000.0,1.12,6.5
+Event Management,11-50,1,2,0.0,2.51,7.0
+Bookkeeping and Payroll,1-10,0,2,0.0,0.93,5.0
+Building Material,11-50,1,2,0.0,1.16,7.0
+Education,1-10,2,2,0.0,1.93,7.5
+Food and Beverage,1-10,0,2,2784.0,0.81,3.5
+Graphic Design,1-10,0,2,0.0,1.04,4.5
+Building Material,101-250,0,2,0.0,0.89,2.5
+Education,11-50,2,2,0.0,2.08,8.0
+Banking,1-10,1,2,0.0,1.98,4.5
+Energy,500+,0,2,0.0,0.76,8.0
+Electronics,Unknown,1,2,0.0,1.34,6.5
+Energy,101-250,0,2,22500000.0,0.65,5.0
+Apps,1-10,0,2,0.0,0.47,3.0
+Consumer Goods,1-10,1,2,0.0,1.52,10.0
+Cloud Computing,11-50,1,2,0.0,1.35,10.0
+Consumer,11-50,0,2,5000000.0,0.01,4.0
+Banking,101-250,1,2,0.0,3.19,10.0
+Dental,Unknown,0,2,0.0,-0.12,4.5
+Cyber Security,1-10,1,2,1625000.0,2.68,9.0
+3D Technology,11-50,1,2,8199999.5,2.48,7.5
+Consulting,Unknown,0,2,0.0,0.81,8.0
+Accounting,11-50,0,2,0.0,0.43,6.5
+Software,11-50,1,2,0.0,2.39,10.0
+Commercial Real Estate,1-10,0,2,0.0,1.26,2.0
+Asset Management,11-50,0,2,0.0,0.8,3.5
+SEO,1-10,3,1,0.0,1.44,10.0
+Telecommunications,1-10,1,1,0.0,3.44,9.0
+Facility Management,11-50,1,1,0.0,0.59,3.0
+Education,Unknown,0,1,0.0,0.67,3.0
+Blogging Platforms,1-10,0,1,0.0,1.27,3.0
+Brand Marketing,1-10,2,1,0.0,0.61,9.0
+Analytics,101-250,2,1,0.0,3.29,10.0
+Electronics,101-250,0,1,0.0,0.16,5.0
+E-Commerce,101-250,2,1,50000000.0,0.89,10.0
+Developer APIs,1-10,1,1,500000.0,3.34,5.0
+Association,Unknown,1,1,0.0,1.44,3.0
+Film,1-10,0,1,4000000.0,0.23,9.0
+Cloud Data Services,Unknown,1,1,0.0,1.72,9.0
+Automotive,11-50,2,1,0.0,0.68,6.0
+Broadcasting,11-50,1,1,0.0,2.91,9.0
+Hardware,1-10,2,1,15000000.0,2.19,8.0
+Ferry Service,11-50,1,1,0.0,2.5,10.0
+Finance,101-250,0,1,0.0,0.4,6.0
+iOS,1-10,0,1,0.0,0.5,1.0
+Food and Beverage,1-10,2,1,0.0,2.06,5.0
+Electrical Distribution,11-50,1,1,0.0,0.73,9.0
+Marketing,1-10,1,1,0.0,0.81,10.0
+Chemical,11-50,2,1,0.0,1.09,10.0
+Building Maintenance,11-50,1,1,0.0,3.29,10.0
+Consulting,101-250,0,1,0.0,0.0,8.0
+Internet,Unknown,1,1,0.0,2.63,10.0
+Green Building,1-10,1,1,0.0,2.08,10.0
+Events,Unknown,0,1,0.0,0.78,5.0
+Call Center,11-50,0,1,0.0,0.9,9.0
+Accounting,1-10,1,1,0.0,0.58,10.0
+Analytics,500+,1,1,0.0,1.62,8.0
+Information Technology,11-50,3,1,0.0,0.6,7.0
+Child Care,Unknown,0,1,0.0,-0.32,10.0
+Agriculture,11-50,3,1,0.0,2.53,8.0
+Electronics,11-50,1,1,0.0,3.31,10.0
+Food Processing,11-50,2,1,0.0,3.38,8.0
+Manufacturing,Unknown,0,1,0.0,0.02,6.0
+Consumer Goods,Unknown,1,1,0.0,1.68,8.0
+Building Material,1-10,0,1,0.0,0.52,1.0
+Financial Services,1-10,3,1,0.0,3.19,10.0
+Consumer Goods,11-50,0,1,0.0,1.5,4.0
+Dietary Supplements,1-10,1,1,0.0,2.82,5.0
+Communities,101-250,0,1,0.0,1.35,1.0
+Travel,1-10,0,1,0.0,0.83,9.0
+Battery,Unknown,0,1,0.0,0.27,7.0
+Emergency Medicine,1-10,0,1,0.0,0.55,3.0
+Consumer Goods,1-10,2,1,0.0,2.02,10.0
+Consulting,201-500,2,1,0.0,0.88,10.0
+Gaming,11-50,1,1,0.0,1.28,7.0
+Energy,Unknown,0,1,0.0,-0.04,6.0
+Food and Beverage,1-10,1,1,0.0,3.22,10.0
+Advertising,Unknown,0,1,0.0,0.24,1.0
+Facilities Support Services,1-10,1,1,0.0,0.85,7.0
+Medical Device,11-50,0,1,0.0,0.73,2.0
+Cloud Management,11-50,0,1,0.0,0.28,9.0
+Internet,Unknown,0,1,0.0,0.37,10.0
+Corporate Training,11-50,0,1,0.0,0.18,1.0
+Retail,1-10,0,1,0.0,1.17,2.0
+Beauty,11-50,0,1,0.0,-0.12,1.0
+Beauty,1-10,0,1,0.0,0.97,3.0
+Agriculture,201-500,1,1,0.0,2.56,4.0
+Electronics,11-50,2,1,0.0,3.35,10.0
+Life Science,11-50,0,1,0.0,0.13,5.0
+Software,11-50,2,1,0.0,0.98,10.0
+Journalism,11-50,3,1,0.0,2.36,10.0
+Advice,Unknown,1,1,0.0,2.21,7.0
+Consulting,1-10,3,1,0.0,0.99,8.0
+Film Production,1-10,1,1,0.0,1.74,10.0
+Furniture,11-50,0,1,0.0,0.49,7.0
+Health Care,201-500,1,1,0.0,2.69,6.0
+Call Center,201-500,2,1,0.0,2.97,10.0
+Agriculture,101-250,1,1,0.0,0.73,6.0
+Aerospace,1-10,1,1,0.0,3.06,3.0
+Hospitality,11-50,1,1,0.0,1.51,8.0
+Health Care,500+,0,1,0.0,0.26,3.0
+Automotive,11-50,1,1,0.0,1.38,3.0
+Manufacturing,11-50,0,1,0.0,1.44,3.0
+Advertising,Unknown,1,1,0.0,1.05,10.0
+Apparel,1-10,1,1,0.0,3.16,7.0
+Commercial,11-50,2,1,0.0,1.36,10.0
+CRM,1-10,1,1,0.0,1.31,7.0
+Management Consulting,11-50,0,1,0.0,0.8,7.0
+Leasing,Unknown,0,1,0.0,1.46,6.0
+Children,1-10,0,1,0.0,1.26,3.0
+Event Management,11-50,0,1,0.0,0.72,9.0
+Internet,11-50,0,1,0.0,1.08,1.0
+Artificial Intelligence (AI),Unknown,2,1,0.0,2.63,7.0
+Building Material,1-10,2,1,0.0,3.36,10.0
+Outdoors,1-10,1,1,0.0,0.71,10.0
+Advertising Platforms,1-10,1,1,0.0,3.28,10.0
+Graphic Design,1-10,1,1,0.0,1.82,4.0
+Angel Investment,1-10,0,1,0.0,0.26,3.0
+Geospatial,1-10,1,1,50000.0,0.93,9.0
+Automotive,101-250,0,1,0.0,0.45,4.0
+Manufacturing,1-10,0,1,10000000.0,0.67,2.0
+Graphic Design,11-50,2,1,0.0,1.72,10.0
+Information Services,201-500,2,1,3000000.0,1.22,10.0
+Digital Marketing,1-10,0,1,0.0,-0.44,3.0
+Oil and Gas,Unknown,0,1,0.0,-0.34,3.0
+News,11-50,1,1,0.0,1.45,8.0
+Beauty,11-50,2,1,0.0,3.19,10.0
+Digital Signage,1-10,1,1,0.0,1.79,7.0
+Internet,Unknown,2,1,0.0,1.86,10.0
+Interior Design,Unknown,0,1,0.0,1.15,7.0
+Civil Engineering,11-50,0,1,0.0,-0.5,1.0
+Travel,11-50,0,1,0.0,0.09,9.0
+Information Technology,101-250,1,1,0.0,2.17,3.0
+Artificial Intelligence (AI),11-50,1,1,0.0,2.9,10.0
+Association,11-50,0,1,0.0,1.25,9.0
+Industrial Engineering,1-10,1,1,0.0,1.58,10.0
+Electronics,201-500,0,1,0.0,-0.24,6.0
+Real Estate,11-50,1,1,0.0,0.89,9.0
+Advertising,Unknown,2,1,0.0,1.71,8.0
+Data Governance,1-10,2,1,0.0,2.1,8.0
+Mobile,1-10,1,1,0.0,1.79,6.0
+Audio,11-50,1,1,0.0,3.12,3.0
+Digital Media,11-50,2,1,0.0,3.04,7.0
+E-Commerce,11-50,2,1,0.0,0.86,10.0
+Delivery,1-10,2,1,0.0,3.3,10.0
+Electric Vehicle,500+,1,1,0.0,1.1,10.0
+Building Material,Unknown,2,1,0.0,3.4,9.0
+Professional Services,1-10,0,1,0.0,0.53,9.0
+Air Transportation,11-50,1,1,0.0,0.54,6.0
+Jewelry,1-10,3,1,0.0,0.72,10.0
+Education,11-50,1,1,0.0,2.72,4.0
+Automotive,Unknown,2,1,0.0,2.82,10.0
+Building Material,11-50,3,1,0.0,1.94,10.0
+E-Commerce,101-250,1,1,0.0,0.89,5.0
+Financial Services,101-250,1,1,0.0,1.19,10.0
+Manufacturing,500+,0,1,0.0,1.13,4.0
+Property Management,101-250,0,1,0.0,1.48,5.0
+Banking,500+,0,1,0.0,0.45,2.0
+Publishing,1-10,0,1,0.0,1.03,1.0
+Brand Marketing,11-50,0,1,0.0,0.43,4.0
+Chemical,101-250,1,1,8500000.0,3.28,5.0
+Chatbot,1-10,1,1,150000.0,1.27,3.0
+Furniture,Unknown,1,1,0.0,2.33,3.0
+"Heating, Ventilation, and Air Conditioning (HVAC)",1-10,1,1,0.0,0.85,6.0
+Children,11-50,2,1,0.0,2.89,10.0
+Information and Communications Technology (ICT),11-50,0,1,0.0,0.92,8.0
+Marketing,1-10,0,1,0.0,1.15,9.0
+"Heating, Ventilation, and Air Conditioning (HVAC)",101-250,1,1,0.0,2.55,10.0
+Creative Agency,1-10,2,1,0.0,1.4,9.0
+Manufacturing,101-250,2,1,0.0,1.14,7.0
+Finance,201-500,1,1,0.0,2.56,5.0
+Manufacturing,1-10,1,1,0.0,2.45,3.0
+GPS,1-10,0,1,0.0,0.04,6.0
+Delivery,11-50,0,1,0.0,0.11,3.0
+IT Infrastructure,11-50,1,1,0.0,3.42,10.0
+Events,11-50,2,1,0.0,1.26,10.0
+Construction,500+,0,1,0.0,-0.35,8.0
+Employee Benefits,Unknown,0,1,0.0,-0.44,4.0
+Bakery,11-50,0,1,0.0,0.55,3.0
+Biofuel,Unknown,1,1,0.0,2.83,9.0
+Management Consulting,101-250,1,1,0.0,1.1,6.0
+Enterprise Resource Planning (ERP),11-50,0,1,0.0,-0.17,9.0
+Electric Vehicle,11-50,1,1,0.0,3.35,10.0
+Cosmetic Surgery,11-50,1,1,0.0,3.4,3.0
+E-Commerce,101-250,0,1,0.0,1.39,3.0
+Hardware,1-10,1,1,645000.0,2.49,10.0
+Logistics,11-50,0,1,0.0,0.74,1.0
+E-Commerce,Unknown,1,1,0.0,2.63,7.0
+Outsourcing,1-10,0,1,0.0,0.4,4.0
+Brand Marketing,1-10,0,1,0.0,0.74,4.0
+Digital Marketing,11-50,0,1,0.0,1.02,10.0
+Broadcasting,11-50,0,1,0.0,1.12,2.0
+Performing Arts,1-10,1,1,0.0,1.74,7.0
+Corporate Training,11-50,1,1,1200000.0,2.11,5.0
+Biotechnology,Unknown,0,1,0.0,0.41,3.0
+Energy,11-50,1,1,0.0,2.5,5.0
+Real Estate,11-50,2,1,0.0,2.97,8.0
+Security,11-50,1,1,0.0,3.27,4.0
+CleanTech,Unknown,0,1,0.0,1.22,6.0
+Food and Beverage,500+,0,1,0.0,0.43,8.0
+Commercial Insurance,Unknown,0,1,0.0,1.43,4.0
+Local Business,Unknown,1,1,0.0,1.36,9.0
+Self-Storage,Unknown,2,1,0.0,2.45,10.0
+Venture Capital,Unknown,0,1,0.0,0.29,10.0
+Children,201-500,0,1,0.0,0.37,7.0
+Education,201-500,0,1,0.0,-0.44,6.0
+Angel Investment,11-50,0,1,0.0,1.36,5.0
+Energy,500+,1,1,0.0,1.67,10.0
+Genetics,1-10,2,1,0.0,2.12,10.0
+Information Services,11-50,1,1,0.0,2.18,6.0
+Building Material,11-50,2,1,0.0,2.91,10.0
+Pharmaceutical,1-10,1,1,0.0,0.57,9.0
+Business Information Systems,11-50,1,1,0.0,1.62,8.0
+Coworking,101-250,2,1,0.0,1.62,10.0
+Apps,Unknown,0,1,0.0,-0.48,7.0
+B2B,Unknown,1,1,0.0,1.97,10.0
+Art,Unknown,1,1,0.0,2.46,6.0
+Lifestyle,1-10,3,1,0.0,0.83,10.0
+Digital Signage,11-50,0,1,0.0,1.42,3.0
+Industrial Automation,11-50,1,1,0.0,3.09,6.0
+Coffee,11-50,0,1,0.0,1.34,2.0
+Hospitality,11-50,0,1,0.0,-0.43,7.0
+Accounting,1-10,0,1,0.0,-0.23,7.0
+Furniture,1-10,1,1,0.0,0.95,3.0
+Property Management,1-10,0,1,0.0,-0.32,10.0
+Renewable Energy,1-10,2,1,0.0,1.39,6.0
+Fuel,101-250,0,1,0.0,-0.29,9.0
+Charter Schools,1-10,0,1,0.0,1.36,2.0
+Wine And Spirits,1-10,1,1,0.0,2.48,4.0
+Facility Management,1-10,0,1,0.0,0.49,10.0
+Real Estate,1-10,1,1,0.0,2.01,8.0
+Venture Capital,11-50,0,1,0.0,-0.32,3.0
+Environmental Consulting,11-50,0,1,0.0,1.46,10.0
+Industrial,1-10,2,1,0.0,3.32,7.0
+Child Care,11-50,0,1,0.0,1.33,4.0
+Property Management,1-10,2,1,0.0,1.13,10.0
+Billing,11-50,1,1,0.0,2.54,3.0
+Brewing,1-10,1,1,0.0,0.73,4.0
+Training,11-50,1,1,0.0,2.75,10.0
+Logistics,1-10,0,1,0.0,0.93,7.0
+Analytics,Unknown,0,1,0.0,0.36,7.0
+Environmental Consulting,1-10,0,1,0.0,0.57,2.0
+Artificial Intelligence (AI),Unknown,0,1,0.0,0.12,2.0
+Card and Board Games,1-10,0,1,0.0,-0.05,9.0
+Dental,1-10,2,1,0.0,2.81,8.0
+Real Estate,Unknown,0,1,0.0,0.52,1.0
+Hardware,Unknown,0,1,0.0,0.05,1.0
+Call Center,1-10,0,1,0.0,-0.16,1.0
+Test and Measurement,11-50,0,1,0.0,0.45,1.0
+Digital Signage,11-50,1,1,0.0,2.07,6.0
+Coffee,1-10,0,1,0.0,0.37,10.0
+Billing,1-10,0,1,0.0,-0.3,3.0
+Employee Benefits,11-50,0,1,4900000.0,0.79,6.0
+Digital Marketing,11-50,2,1,0.0,2.08,10.0
+Marketing Automation,1-10,2,1,0.0,0.77,10.0
+Business Development,1-10,2,1,0.0,2.99,8.0
+Retail,1-10,1,1,0.0,2.25,4.0
+Tourism,1-10,1,1,0.0,3.42,6.0
+Commercial Real Estate,Unknown,1,1,0.0,2.2,8.0
+Customer Service,11-50,0,1,0.0,-0.24,1.0
+Gift Card,11-50,0,1,0.0,1.04,8.0
+Commercial Real Estate,1-10,1,1,0.0,1.19,3.0
+Apparel,1-10,0,1,0.0,0.91,8.0
+Agriculture,11-50,1,1,0.0,2.78,10.0
+Art,1-10,0,1,0.0,0.71,3.0
+Landscaping,1-10,3,1,0.0,1.77,10.0
+Analytics,101-250,1,1,0.0,1.93,10.0
+Commercial Insurance,11-50,0,1,0.0,0.21,6.0
+Air Transportation,1-10,1,1,0.0,1.66,9.0
+Commercial Lending,Unknown,1,1,0.0,0.64,3.0
+Industrial,Unknown,1,1,0.0,2.69,7.0
+Document Management,Unknown,1,1,0.0,0.57,6.0
+Recruiting,11-50,0,1,0.0,1.42,9.0
+Home and Garden,11-50,2,1,0.0,1.01,5.0
+Consumer Electronics,1-10,0,1,0.0,0.72,3.0
+Dental,1-10,0,1,0.0,0.94,3.0
+Digital Marketing,1-10,1,1,0.0,0.51,6.0
+Brand Marketing,11-50,2,1,0.0,2.06,7.0
+Unknown,101-250,0,1,0.0,1.21,7.0
+Home Services,1-10,1,1,0.0,3.08,10.0
+Hospitality,11-50,2,1,0.0,3.45,7.0
+E-Commerce Platforms,11-50,2,1,0.0,2.71,10.0
+Finance,1-10,2,1,0.0,2.77,10.0
+Property Development,1-10,0,1,0.0,0.54,6.0
+Graphic Design,101-250,1,1,0.0,2.11,9.0
+Architecture,1-10,1,1,0.0,0.93,10.0
+Chemical,500+,0,1,0.0,0.54,10.0
+Auctions,11-50,2,1,0.0,2.01,10.0
+Commercial,11-50,1,1,0.0,0.74,8.0
+Aerospace,11-50,0,1,0.0,0.55,4.0
+Consumer Electronics,11-50,0,1,0.0,0.46,6.0
+Commercial Real Estate,11-50,0,1,0.0,-0.41,5.0
+Artificial Intelligence (AI),101-250,0,1,0.0,0.6,3.0
+Analytics,11-50,0,1,0.0,0.13,10.0
+Document Management,1-10,0,1,457000.0,1.16,8.0
+Consumer Goods,101-250,2,1,0.0,2.02,6.0
+Dating,1-10,1,1,0.0,1.86,10.0
+Event Management,Unknown,0,1,0.0,0.58,4.0
+Animation,1-10,0,1,0.0,1.21,3.0
+Marketplace,11-50,1,1,0.0,3.31,8.0
+Fashion,11-50,0,1,0.0,0.15,7.0
+Building Maintenance,Unknown,1,1,0.0,3.36,10.0
+Career Planning,1-10,1,1,0.0,2.87,6.0
+Events,1-10,0,1,0.0,0.02,1.0
+Human Resources,500+,0,1,0.0,0.72,8.0
+Hotel,1-10,2,1,0.0,1.64,6.0
+Real Estate,101-250,0,1,0.0,-0.45,3.0
+Developer Platform,1-10,1,1,0.0,1.59,10.0
+Banking,500+,2,1,0.0,0.83,10.0
+Automotive,Unknown,1,1,0.0,2.93,7.0
+Advanced Materials,Unknown,0,1,0.0,0.17,2.0
+Child Care,1-10,1,1,600000.0,2.76,4.0
+Biopharma,11-50,0,1,0.0,0.54,6.0
+Finance,11-50,1,1,0.0,1.26,7.0
+Computer,1-10,1,1,0.0,3.18,3.0
+Fashion,1-10,1,1,11000000.0,1.57,9.0
+Legal,1-10,1,1,0.0,0.57,10.0
+Energy,1-10,0,1,11000000.0,0.64,3.0
+Artificial Intelligence (AI),500+,1,1,78150000.0,2.53,5.0
+Communications Infrastructure,1-10,1,1,0.0,2.39,5.0
+Electronics,500+,2,1,100000000.0,0.79,6.0
+Energy,11-50,0,1,44999999.0,-0.16,8.0
+Automotive,11-50,0,1,0.0,-0.44,4.0
+E-Commerce,500+,0,1,830000000.0,1.4,2.0
+Software,1-10,2,1,15000.0,2.55,10.0
+Data Management,500+,1,1,0.0,3.46,5.0
+News,1-10,2,1,0.0,2.25,10.0
+Internet,1-10,2,1,0.0,1.98,10.0
+Automotive,500+,1,1,0.0,1.13,10.0
+Big Data,1-10,1,1,0.0,1.14,10.0
+Food and Beverage,Unknown,1,1,0.0,1.84,9.0
+Automotive,500+,0,1,0.0,0.92,3.0
+Accounting,201-500,0,1,0.0,1.43,2.0
+Android,1-10,0,1,0.0,-0.03,1.0
+Health Insurance,11-50,1,1,2400000.0,2.35,6.0
+Music,Unknown,1,1,0.0,3.38,10.0
+Legal,11-50,1,1,0.0,1.49,10.0
+Business Development,101-250,0,1,0.0,0.92,3.0
+Software,Unknown,1,1,0.0,1.22,6.0
+Information Technology,1-10,2,1,0.0,0.78,10.0
+Baby,1-10,0,1,0.0,0.45,7.0
+Gaming,11-50,0,1,7850000.0,-0.05,3.0
+Adventure Travel,1-10,1,1,0.0,2.76,3.0
+Property Development,1-10,1,1,0.0,0.91,8.0
+Packaging Services,1-10,0,1,0.0,1.21,7.0
+Digital Entertainment,1-10,0,1,0.0,0.14,7.0
+Software,11-50,0,1,0.0,1.15,10.0
+Communities,500+,0,1,0.0,1.33,5.0
+Advertising,11-50,2,1,6750000.0,1.49,10.0
+Consumer,1-10,0,1,0.0,0.36,10.0
+Content Discovery,11-50,1,1,27135000.0,2.71,10.0
+Manufacturing,500+,1,1,0.0,3.33,8.0
+Analytics,11-50,2,1,0.0,0.73,10.0
+Property Development,11-50,1,1,0.0,2.27,3.0
+Bakery,500+,0,1,243000.0,0.2,10.0
+Biotechnology,11-50,2,1,37000000.0,0.73,10.0
+Leisure,Unknown,0,1,0.0,0.84,2.0
+FinTech,11-50,1,1,0.0,1.82,5.0
+CMS,1-10,1,1,0.0,0.76,8.0
+Domain Registrar,1-10,2,1,0.0,0.75,6.0
+Environmental Consulting,1-10,1,1,0.0,1.67,10.0
+Financial Services,500+,1,1,0.0,0.89,10.0
+Cloud Infrastructure,1-10,2,1,351000000.0,2.2,10.0
+Auto Insurance,11-50,0,1,0.0,0.08,5.0
+Building Maintenance,1-10,1,1,0.0,2.65,4.0
+Home Appliances,101-250,0,1,0.0,0.08,9.0
+Art,11-50,0,1,0.0,0.3,7.0
+Biotechnology,11-50,1,1,0.0,0.53,10.0
+Consulting,201-500,0,1,0.0,-0.39,1.0
+Unknown,500+,0,1,0.0,-0.37,6.0
+Public Transportation,1-10,0,1,0.0,0.08,1.0
+Mobile Apps,1-10,3,1,0.0,1.93,7.0
+Cloud Infrastructure,1-10,0,1,2700000.0,0.73,5.0
+E-Commerce,500+,1,1,0.0,2.16,5.0
+Renewable Energy,1-10,1,1,0.0,3.38,5.0
+Audio,1-10,1,1,0.0,2.78,8.0
+Cycling,1-10,1,1,0.0,2.64,7.0
+Consulting,201-500,1,1,0.0,3.12,4.0
+Communities,1-10,1,1,1000000.0,1.55,7.0
+Film,101-250,1,1,0.0,3.24,4.0
+Fitness,500+,1,1,0.0,1.93,8.0
+Business Intelligence,1-10,1,1,0.0,3.26,6.0
+Bitcoin,1-10,0,1,0.0,0.95,10.0
+Advice,101-250,1,1,0.0,2.9,8.0
+Leisure,1-10,2,1,0.0,1.1,10.0
+Human Resources,101-250,0,1,0.0,-0.32,5.0
+Fashion,11-50,1,1,0.0,0.96,5.0
+Business Development,Unknown,1,1,0.0,1.44,6.0
+Point of Sale,Unknown,1,1,0.0,2.12,8.0
+Real Estate Investment,Unknown,1,1,0.0,1.89,6.0
+Food and Beverage,500+,1,1,0.0,1.92,10.0
+Incubators,Unknown,0,1,0.0,0.93,8.0
+Clean Energy,101-250,2,1,0.0,0.86,10.0
+Animation,1-10,1,1,0.0,1.03,3.0
+Energy Storage,11-50,2,1,4800000.0,2.53,6.0
+Audio,11-50,0,1,1200000.0,0.23,2.0
+Asset Management,Unknown,1,1,0.0,0.73,9.0
+Crowdfunding,Unknown,0,1,0.0,0.19,9.0
+Cryptocurrency,11-50,0,1,300000.0,-0.31,5.0
+Apps,11-50,1,1,1500000.0,1.02,10.0
+Agriculture,1-10,1,1,1000000.0,2.84,7.0
+Bakery,201-500,0,1,0.0,-0.07,6.0
+Cloud Infrastructure,11-50,0,1,0.0,-0.35,7.0
+Home Decor,1-10,0,1,0.0,1.09,3.0
+Information Services,1-10,0,1,0.0,0.36,9.0
+E-Learning,1-10,3,1,0.0,2.57,10.0
+Finance,500+,2,1,200000000.0,2.09,7.0
+Government,11-50,1,1,0.0,1.72,7.0
+Broadcasting,500+,2,1,0.0,2.93,10.0
+Education,201-500,1,1,0.0,1.6,8.0
+Financial Services,1-10,2,1,0.0,1.24,5.0
+Adventure Travel,11-50,1,1,0.0,2.36,9.0
+Public Relations,11-50,1,1,0.0,2.26,3.0
+Creative Agency,1-10,1,1,0.0,1.57,4.0
+Biotechnology,11-50,0,1,0.0,-0.14,1.0
+Android,11-50,1,1,709996.0,0.61,5.0
+Venture Capital,11-50,1,1,0.0,2.09,5.0
+Agriculture,11-50,2,1,0.0,0.51,10.0
+Food and Beverage,11-50,0,1,0.0,0.96,2.0
+Home and Garden,11-50,0,1,0.0,0.38,5.0
+Freight Service,1-10,0,1,0.0,0.69,7.0
+Farming,500+,1,1,0.0,1.48,7.0
+Content,Unknown,0,1,0.0,-0.23,3.0
+News,201-500,1,1,0.0,1.61,5.0
+Personal Health,1-10,0,1,0.0,0.09,9.0
+Environmental Consulting,Unknown,2,1,0.0,0.88,9.0
+Data Integration,Unknown,2,1,0.0,0.63,7.0
+Auto Insurance,500+,2,1,147000000.0,0.66,5.0
+Chemical,11-50,1,1,0.0,0.97,10.0
+Banking,Unknown,1,1,0.0,0.69,10.0
+Information Technology,Unknown,0,1,0.0,1.34,2.0
+Information Technology,201-500,1,1,0.0,0.67,7.0
+Security,1-10,1,1,0.0,1.25,5.0
+Information Services,101-250,2,1,0.0,1.86,10.0
+3D Technology,201-500,1,1,0.0,3.38,10.0
+Charity,1-10,1,1,0.0,3.41,8.0
+Customer Service,1-10,0,1,0.0,-0.14,1.0
+Android,1-10,1,1,0.0,3.01,8.0
+Retail,101-250,1,1,0.0,1.68,10.0
+Real Estate,11-50,0,1,0.0,0.01,6.0
+Analytics,1-10,3,1,500000.0,0.91,10.0
+Health Care,101-250,0,1,0.0,1.1,7.0
+Industrial Automation,Unknown,0,1,0.0,1.03,8.0
+Consulting,101-250,2,1,0.0,1.68,10.0
+Brewing,11-50,1,1,0.0,1.51,9.0
+Artificial Intelligence (AI),1-10,0,1,0.0,0.81,9.0
+Government,11-50,2,1,0.0,2.73,10.0
+Assisted Living,1-10,1,1,0.0,1.66,10.0
+Education,500+,0,1,0.0,0.22,6.0
+FinTech,1-10,0,1,1200.0,-0.13,4.0
+Building Maintenance,500+,2,1,0.0,2.1,6.0
+Consulting,500+,1,1,0.0,2.53,10.0
+Cloud Computing,1-10,2,1,0.0,0.53,10.0
+Elderly,101-250,0,1,0.0,1.03,8.0
+Consumer Goods,1-10,0,1,0.0,0.27,9.0
+Customer Service,1-10,2,1,0.0,2.76,10.0
+Cosmetics,Unknown,2,1,0.0,1.08,6.0
+Lead Management,1-10,0,1,0.0,-0.37,2.0
+Advice,101-250,0,1,0.0,0.44,7.0
+Communications Infrastructure,11-50,0,1,0.0,1.14,4.0
+Analytics,1-10,2,1,0.0,1.67,6.0
+Enterprise Software,1-10,0,1,0.0,-0.48,9.0
