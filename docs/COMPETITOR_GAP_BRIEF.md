@@ -9,7 +9,7 @@ The brief follows the JSON schema defined in `schemas/competitor_gap_brief.schem
 ## Peer Sampling Strategy
 
 ### Source Data
-Peers are sampled from the Crunchbase dataset (`data/crunchbase_sample.json`) using the following logic:
+Peers are sampled from the Crunchbase dataset (`data/crunchbase-companies.csv`) using the following logic:
 
 ### Sampling Algorithm
 
@@ -72,7 +72,7 @@ This forces the agent to respect evidence quality when composing outreach.
 ## Production Considerations
 
 ### Current Implementation (File-Based)
-- Static Crunchbase snapshot in `data/crunchbase_sample.json`
+- Static Crunchbase snapshot in `data/crunchbase-companies.csv`
 - Peer sampling happens at enrichment time
 - No caching of peer scores
 

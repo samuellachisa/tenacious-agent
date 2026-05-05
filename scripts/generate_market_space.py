@@ -1,4 +1,3 @@
-import json
 import csv
 import random
 from collections import defaultdict
@@ -6,8 +5,9 @@ import os
 
 def load_data():
     try:
-        with open("data/crunchbase_sample.json", "r", encoding="utf-8") as f:
-            return json.load(f)
+        with open("data/crunchbase-companies.csv", "r", encoding="utf-8") as f:
+            import csv
+            return list(csv.DictReader(f))
     except FileNotFoundError:
         return []
 

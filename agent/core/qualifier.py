@@ -16,10 +16,14 @@ Bench capacity constraint: Never commit to capacity that exceeds bench_summary.j
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
 from agent.integrations.langfuse_client import log_trace
+
+# LLM integration flag - set to False to use hardcoded templates
+USE_LLM_FOR_PITCH = os.getenv("USE_LLM_FOR_PITCH", "true").lower() == "true"
 
 # ---------------------------------------------------------------------------
 # Bench capacity helpers
@@ -224,7 +228,7 @@ SEGMENT_DISPLAY_NAMES = {
 # Public API
 # ---------------------------------------------------------------------------
 
-def qualify_prospect(enrichment: dict[str, Any]) -> dict[str, Any]:
+async def qualify_prospect(enrichment: dict[str, Any]) -> dict[str, Any]:
     """
     Classify an enriched prospect into an ICP segment.
 
@@ -314,7 +318,7 @@ def qualify_prospect(enrichment: dict[str, Any]) -> dict[str, Any]:
             f"{layoff_signal['headcount']} headcount ({layoff_signal['days_ago']} days ago). "
             "Defaulting to recently_funded segment — flagged for manual review."
         )
-        pitch_language = build_pitch_language(segment, ai_score, ai_confidence, enrichment)
+        pitch_language = await build_pitch_language(segment, ai_score, ai_confidence, enrichment)
         result = {
             "qualified": True,
             "segment": segment,
@@ -343,7 +347,7 @@ def qualify_prospect(enrichment: dict[str, Any]) -> dict[str, Any]:
             f"${funding_event['total_funding_usd']:,} — {funding_event['days_ago']} days ago. "
             "Company is in active growth phase with capital to deploy on talent."
         )
-        pitch_language = build_pitch_language(segment, ai_score, ai_confidence, enrichment)
+        pitch_language = await build_pitch_language(segment, ai_score, ai_confidence, enrichment)
         result = {
             "qualified": True,
             "segment": segment,
@@ -367,7 +371,7 @@ def qualify_prospect(enrichment: dict[str, Any]) -> dict[str, Any]:
             f"joined {leadership_change['tenure_days']} days ago. "
             "New technical leadership typically drives vendor and team restructuring."
         )
-        pitch_language = build_pitch_language(segment, ai_score, ai_confidence, enrichment)
+        pitch_language = await build_pitch_language(segment, ai_score, ai_confidence, enrichment)
         result = {
             "qualified": True,
             "segment": segment,
@@ -394,7 +398,7 @@ def qualify_prospect(enrichment: dict[str, Any]) -> dict[str, Any]:
                 f"({layoff_signal['percentage']}%) — {layoff_signal['days_ago']} days ago. "
                 "Company is optimising cost structure — outsourced talent is a natural fit."
             )
-            pitch_language = build_pitch_language(segment, ai_score, ai_confidence, enrichment)
+            pitch_language = await build_pitch_language(segment, ai_score, ai_confidence, enrichment)
             result = {
                 "qualified": True,
                 "segment": segment,
@@ -418,7 +422,7 @@ def qualify_prospect(enrichment: dict[str, Any]) -> dict[str, Any]:
             "Company shows meaningful AI adoption signals but lacks the talent "
             "depth to execute at scale — outsourced AI/ML talent is a direct fit."
         )
-        pitch_language = build_pitch_language(segment, ai_score, ai_confidence, enrichment)
+        pitch_language = await build_pitch_language(segment, ai_score, ai_confidence, enrichment)
         result = {
             "qualified": True,
             "segment": segment,
@@ -457,7 +461,7 @@ def qualify_prospect(enrichment: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
-def build_pitch_language(
+async def build_pitch_language(
     segment: str,
     ai_maturity: int,
     ai_confidence: str,
@@ -465,6 +469,9 @@ def build_pitch_language(
 ) -> str:
     """
     Generate segment-aware, AI-maturity-aware, bench-capacity-aware pitch language.
+
+    Uses LLM (via OpenRouter) when USE_LLM_FOR_PITCH=true, with automatic
+    fallback to hardcoded templates if the LLM call fails.
 
     Rules:
     - Low confidence → ask rather than assert
@@ -488,7 +495,221 @@ def build_pitch_language(
     required_stacks = infer_required_stacks(enrichment)
     primary_stack = required_stacks[0] if required_stacks else "python"
     capacity_check = check_bench_capacity(primary_stack, required_count=1)
-    
+
+    # Try LLM-generated pitch first
+    if USE_LLM_FOR_PITCH:
+        llm_pitch = await _generate_pitch_with_llm(
+            segment=segment,
+            ai_maturity=ai_maturity,
+            ai_confidence=ai_confidence,
+            company=company,
+            enrichment=enrichment,
+            capacity_check=capacity_check,
+            primary_stack=primary_stack,
+        )
+        if llm_pitch:
+            return llm_pitch
+
+    # Fallback: hardcoded templates
+    return _build_pitch_language_fallback(
+        segment=segment,
+        ai_maturity=ai_maturity,
+        ai_confidence=ai_confidence,
+        company=company,
+        open_roles=open_roles,
+        ai_roles=ai_roles,
+        funding_event=funding_event,
+        layoff_signal=layoff_signal,
+        leadership_change=leadership_change,
+        competitor_gap=competitor_gap,
+        capacity_check=capacity_check,
+        primary_stack=primary_stack,
+    )
+
+
+async def _generate_pitch_with_llm(
+    segment: str,
+    ai_maturity: int,
+    ai_confidence: str,
+    company: str,
+    enrichment: dict[str, Any],
+    capacity_check: dict[str, Any],
+    primary_stack: str,
+) -> str:
+    """
+    Generate personalized pitch language using LLM.
+    Returns empty string on failure (triggers fallback).
+    """
+    from agent.integrations.llm_client import generate_text
+
+    job_signals: dict = enrichment.get("job_signals", {})
+    open_roles: int = job_signals.get("open_roles", 0)
+    ai_roles: list = job_signals.get("ai_roles", [])
+    firmographics: dict = enrichment.get("firmographics", {})
+    funding_event: dict | None = enrichment.get("funding_event")
+    layoff_signal: dict | None = enrichment.get("layoff_signal")
+    leadership_change: dict | None = enrichment.get("leadership_change")
+    competitor_gap: dict = enrichment.get("competitor_gap", {})
+    hiring_signal_brief: dict = enrichment.get("hiring_signal_brief", {})
+
+    # Build signal context for the prompt
+    signal_lines: list[str] = []
+
+    if funding_event and funding_event.get("in_window"):
+        signal_lines.append(
+            f"- Funding: {funding_event['type'].replace('_', ' ').title()} "
+            f"${funding_event.get('total_funding_usd', 0):,} "
+            f"({funding_event.get('days_ago', '?')} days ago)"
+        )
+
+    if layoff_signal and layoff_signal.get("in_window"):
+        signal_lines.append(
+            f"- Layoff: {layoff_signal.get('headcount', '?')} headcount "
+            f"({layoff_signal.get('percentage', '?')}%) "
+            f"{layoff_signal.get('days_ago', '?')} days ago"
+        )
+
+    if leadership_change and leadership_change.get("in_window"):
+        signal_lines.append(
+            f"- New {leadership_change.get('role', 'CTO')}: "
+            f"{leadership_change.get('name', 'Unknown')} "
+            f"({leadership_change.get('tenure_days', '?')} days tenure)"
+        )
+
+    if open_roles > 0:
+        signal_lines.append(f"- Open roles: {open_roles} total")
+    if ai_roles:
+        signal_lines.append(f"- AI/ML roles: {', '.join(ai_roles[:3])}")
+
+    # Competitor gap context
+    gap_findings: list[dict] = competitor_gap.get("gap_findings", [])
+    high_confidence_gaps = [g for g in gap_findings if g.get("confidence") == "high"]
+    gap_context = ""
+    if high_confidence_gaps:
+        first_gap = high_confidence_gaps[0]
+        peer_names = [p.get("competitor_name", "") for p in first_gap.get("peer_evidence", [])[:2]]
+        gap_context = (
+            f"\nCompetitor gap: {first_gap.get('practice', '')} "
+            f"(peers doing this: {', '.join(filter(None, peer_names))})"
+        )
+
+    # Capacity context
+    if capacity_check["available"]:
+        capacity_context = (
+            f"{capacity_check['available_count']} {primary_stack.title()} engineers "
+            f"available on bench, deployable in {_get_deploy_days(primary_stack)} days"
+        )
+    else:
+        capacity_context = capacity_check["recommendation"]
+
+    # Confidence gate: low confidence → ask, don't assert
+    confidence_instruction = (
+        "Use assertive language — the signals are strong."
+        if ai_confidence in ("high", "medium")
+        else "Use questions rather than assertions — signal confidence is low."
+    )
+
+    # Hiring velocity instruction
+    if open_roles >= 5:
+        velocity_instruction = f"You may reference {open_roles} open roles as a signal of active growth."
+    elif open_roles >= 1:
+        velocity_instruction = f"Reference {open_roles} open role(s) but do not claim 'aggressive hiring'."
+    else:
+        velocity_instruction = "Do not make claims about hiring velocity — no open roles detected."
+
+    segment_context = {
+        "recently_funded": (
+            "The prospect recently closed a funding round. "
+            "They have fresh capital and need to scale engineering output faster than in-house hiring allows."
+        ),
+        "cost_restructuring": (
+            "The prospect recently went through a layoff/restructuring. "
+            "They need to maintain engineering output with a leaner team — outsourced talent is cost-efficient."
+        ),
+        "leadership_transition": (
+            "The prospect has a new CTO or VP Engineering. "
+            "New technical leaders reassess vendors and offshore mix in their first 6 months."
+        ),
+        "capability_gap": (
+            "The prospect shows AI maturity signals but lacks the talent depth to execute at scale. "
+            "They need senior AI/ML engineers who can contribute from day one."
+        ),
+    }.get(segment, "The prospect is a B2B technology company that could benefit from outsourced engineering talent.")
+
+    industry = firmographics.get("industry", "technology")
+    employee_count = firmographics.get("employee_count", "unknown")
+
+    prompt = f"""You are writing a cold outbound email body for Tenacious Consulting, a B2B talent outsourcing firm.
+
+PROSPECT: {company}
+INDUSTRY: {industry}
+EMPLOYEES: {employee_count}
+SEGMENT: {segment}
+AI MATURITY: {ai_maturity}/3 ({ai_confidence} confidence)
+
+SITUATION:
+{segment_context}
+
+SIGNALS DETECTED:
+{chr(10).join(signal_lines) if signal_lines else "- No strong signals detected"}
+{gap_context}
+
+BENCH CAPACITY:
+{capacity_context}
+
+INSTRUCTIONS:
+- Write 3 short paragraphs (total 150-220 words)
+- Paragraph 1: Open with the specific signal that triggered this outreach (funding, layoff, new leader, or AI gap). Be concrete — name the signal, the date/amount if available.
+- Paragraph 2: Connect the signal to a pain point Tenacious solves. Reference the competitor gap if available.
+- Paragraph 3: State bench capacity honestly, then close with a single low-friction CTA: "Would you have 20 minutes this week for a quick call?"
+- {confidence_instruction}
+- {velocity_instruction}
+- Never fabricate signals not listed above.
+- Never promise capacity beyond what is stated in bench capacity.
+- Tone: direct, warm, peer-to-peer — not salesy. Write as if from a senior consultant, not a sales rep.
+- Do NOT include a subject line, greeting, or sign-off — body paragraphs only.
+
+Write the email body now:"""
+
+    result = await generate_text(prompt=prompt, max_tokens=400, temperature=0.7)
+
+    if result["success"] and result["text"]:
+        log_trace("llm_pitch_generated", {
+            "company": company,
+            "segment": segment,
+            "model": result["model"],
+            "cost_usd": result["cost_usd"],
+            "tokens": result["tokens"],
+        })
+        return result["text"]
+
+    # LLM failed — log and return empty to trigger fallback
+    log_trace("llm_pitch_failed", {
+        "company": company,
+        "segment": segment,
+        "error": result.get("error", "unknown"),
+    })
+    return ""
+
+
+def _build_pitch_language_fallback(
+    segment: str,
+    ai_maturity: int,
+    ai_confidence: str,
+    company: str,
+    open_roles: int,
+    ai_roles: list,
+    funding_event: dict | None,
+    layoff_signal: dict | None,
+    leadership_change: dict | None,
+    competitor_gap: dict,
+    capacity_check: dict,
+    primary_stack: str,
+) -> str:
+    """
+    Hardcoded template fallback for pitch language.
+    Used when LLM is disabled or unavailable.
+    """
     # Build capacity-aware language
     if capacity_check["available"]:
         capacity_line = (
@@ -497,10 +718,7 @@ def build_pitch_language(
             f"we can place your first engineer within {_get_deploy_days(primary_stack)} days."
         )
     else:
-        # Insufficient capacity — be honest
-        capacity_line = (
-            f"\n\n{capacity_check['recommendation']}"
-        )
+        capacity_line = f"\n\n{capacity_check['recommendation']}"
 
     # Hiring velocity language — never assert "aggressive" if < 5 roles
     if open_roles >= 5:
@@ -513,14 +731,14 @@ def build_pitch_language(
     # Check for high-confidence gap findings to enhance pitch
     gap_findings: list[dict] = competitor_gap.get("gap_findings", [])
     high_confidence_gaps = [g for g in gap_findings if g.get("confidence") == "high"]
-    
+
     # Build gap-aware language if available
     gap_line = ""
     if high_confidence_gaps and ai_maturity >= 2:
         first_gap = high_confidence_gaps[0]
         practice = first_gap.get("practice", "")
         peer_count = len(first_gap.get("peer_evidence", []))
-        
+
         if peer_count >= 2 and "leadership" in practice.lower():
             gap_line = (
                 f"\n\nWe've noticed that several peers in your sector have established "
@@ -618,12 +836,10 @@ def build_pitch_language(
             )
 
     elif segment == "capability_gap":
-        # Hard gate enforced in qualifier — this branch only reached if ai_maturity >= 2
-        # Use gap findings if available
         if high_confidence_gaps:
             first_gap = high_confidence_gaps[0]
             practice = first_gap.get("practice", "")
-            
+
             if "leadership" in practice.lower():
                 opening = (
                     f"We've been tracking AI adoption in your sector, and noticed that "

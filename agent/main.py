@@ -281,8 +281,14 @@ async def _run_prospect_pipeline(
     phone_number: str | None,
     tz: str,
 ) -> None:
-    """Full prospect pipeline: enrich → qualify → CRM → email."""
-    import traceback
+    """
+    Full prospect pipeline: enrich -> qualify -> LLM email compose -> CRM -> send.
+
+    LLM is called at Step 4a to compose a personalized, signal-grounded email.
+    If the LLM call fails or OPENROUTER_API_KEY is unset, the pipeline falls
+    back to the rule-based email builders transparently.
+    """
+    import traceback as tb
 
     try:
         # Step 1: Enrichment (use case)
@@ -322,20 +328,67 @@ async def _run_prospect_pipeline(
             print(f"[PIPELINE] Not qualified: {qualification.reason}")
             return
 
-        # Step 4: Send outbound email (gateway)
-        container.observability.log_trace("pipeline_step", {"step": "email_send", "company": company_name})
-        subject = _build_email_subject(qualification, company_name)
-        text_body = _build_email_text(first_name, company_name, qualification)
-        html_body = _build_email_html(first_name, company_name, qualification)
+        # Step 4a: LLM email composition (with rule-based fallback)
+        # Build the hiring signal brief dict from the enrichment entity so the
+        # LLM prompt is grounded in verified signals only.
+        container.observability.log_trace("pipeline_step", {"step": "llm_email_compose", "company": company_name})
+        hiring_signal_brief = enrichment.to_dict()
 
-        email_result = await container.email.send_email(
+        # Fetch competitor gap brief from disk if it was persisted during enrichment
+        competitor_gap_brief: dict[str, Any] | None = None
+        try:
+            from agent.core.enrichment import _briefs_dir
+            import json as _json
+            brief_path = _briefs_dir() / f"{company_name.lower().replace(' ', '_')}_competitor_gap.json"
+            if brief_path.exists():
+                with open(brief_path, "r", encoding="utf-8") as fh:
+                    competitor_gap_brief = _json.load(fh)
+        except Exception:
+            pass  # Non-fatal — proceed without gap brief
+
+        from agent.core.llm_enrichment import compose_outbound_email, check_tone
+
+        email_result_llm = await compose_outbound_email(
+            company_name=company_name,
+            contact_first_name=first_name,
+            segment=qualification.segment,
+            pitch_language=qualification.pitch_language,
+            hiring_signal_brief=hiring_signal_brief,
+            competitor_gap_brief=competitor_gap_brief,
+        )
+
+        subject = email_result_llm["subject"]
+        text_body = email_result_llm["body_text"]
+        html_body = email_result_llm["body_html"]
+        llm_used = email_result_llm["llm_used"]
+
+        # Step 4b: Tone guard — regenerate with fallback if tone check fails
+        if llm_used:
+            tone = await check_tone(text_body, company_name)
+            if not tone["pass"]:
+                container.observability.log_trace("pipeline_tone_fail", {
+                    "company": company_name,
+                    "issues": tone["issues"],
+                    "score": tone["score"],
+                })
+                print(f"[PIPELINE] tone check failed ({tone['score']:.2f}), using rule-based fallback")
+                subject = _build_email_subject(qualification, company_name)
+                text_body = _build_email_text(first_name, company_name, qualification)
+                html_body = _build_email_html(first_name, company_name, qualification)
+                llm_used = False
+
+        print(f"[PIPELINE] email composed llm_used={llm_used}")
+
+        # Step 5: Send outbound email (gateway)
+        container.observability.log_trace("pipeline_step", {"step": "email_send", "company": company_name})
+        send_result = await container.email.send_email(
             to_email=contact_email,
             subject=subject,
             text=text_body,
             html=html_body,
             reply_to=os.getenv("MAILERSEND_FROM_EMAIL", "outbound@tenacious.consulting"),
         )
-        print(f"[PIPELINE] email status={email_result.get('status')}")
+        print(f"[PIPELINE] email status={send_result.get('status')}")
 
         container.observability.log_trace(
             "pipeline_complete",
@@ -344,15 +397,17 @@ async def _run_prospect_pipeline(
                 "segment": qualification.segment,
                 "confidence": qualification.confidence,
                 "acv_estimate": qualification.acv_estimate,
-                "email_status": email_result.get("status"),
+                "email_status": send_result.get("status"),
                 "manual_review": qualification.manual_review,
+                "llm_email_used": llm_used,
+                "llm_model": email_result_llm.get("model", ""),
+                "llm_cost_usd": email_result_llm.get("cost_usd", 0.0),
+                # Tag for outbound variant tracking (graded observable)
+                "outbound_variant": "research_grounded" if competitor_gap_brief else "signal_grounded",
             },
         )
     except Exception:
-        import traceback
-        print(f"[PIPELINE ERROR] {company_name}:\n{traceback.format_exc()}")
-        import traceback
-        print(f"[PIPELINE ERROR] {company_name}:\n{traceback.format_exc()}")
+        print(f"[PIPELINE ERROR] {company_name}:\n{tb.format_exc()}")
 
 
 async def _handle_reply_pipeline(

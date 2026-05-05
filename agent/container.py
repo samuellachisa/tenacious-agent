@@ -31,7 +31,7 @@ class Container:
         # Infrastructure adapters (outer layer)
         self._observability = LangfuseAdapter()
         self._data_repo = FileDataRepository(
-            crunchbase_path=os.getenv("CRUNCHBASE_DATA_PATH", "data/crunchbase_sample.json"),
+            crunchbase_path=os.getenv("CRUNCHBASE_DATA_PATH", "data/crunchbase-companies.csv"),
             layoffs_path=os.getenv("LAYOFFS_DATA_PATH", "data/layoffs.csv"),
         )
         self._crm = _build_crm_adapter()

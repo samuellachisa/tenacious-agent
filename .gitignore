@@ -43,6 +43,10 @@ eval/score_log.json
 eval/trace_log.jsonl
 eval/e2e_test_results.json
 
+# Tenacious-Bench held-out partition — NOT public until leaderboard published
+tenacious_bench/tenacious_bench_v0.1/held_out/
+tenacious_bench_v0.1/held_out/
+
 # Logs
 *.log
 

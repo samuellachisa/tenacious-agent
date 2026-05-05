@@ -112,7 +112,7 @@ All data paths are relative to the project root:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `CRUNCHBASE_DATA_PATH` | `data/crunchbase_sample.json` | Firmographic data source |
+| `CRUNCHBASE_DATA_PATH` | `data/crunchbase-companies.csv` | Firmographic data source |
 | `LAYOFFS_DATA_PATH` | `data/layoffs.csv` | Layoff events data source |
 | `BRIEFS_OUTPUT_PATH` | `data/briefs` | Enrichment output directory |
 

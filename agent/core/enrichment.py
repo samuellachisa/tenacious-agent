@@ -30,7 +30,7 @@ load_dotenv()
 # ---------------------------------------------------------------------------
 
 def _crunchbase_path() -> Path:
-    return Path(os.getenv("CRUNCHBASE_DATA_PATH", "data/crunchbase_sample.json"))
+    return Path(os.getenv("CRUNCHBASE_DATA_PATH", "data/crunchbase-companies.csv"))
 
 
 def _layoffs_path() -> Path:
@@ -47,50 +47,126 @@ def _briefs_dir() -> Path:
 # Firmographics
 # ---------------------------------------------------------------------------
 
+def _parse_industries_csv(raw: str) -> str:
+    """
+    Parse the `industries` column from the Crunchbase CSV.
+    The column contains JSON like: [{"id":"saas","value":"SaaS"}, ...]
+    Returns a comma-separated string of industry names, or the raw string.
+    """
+    if not raw or raw in ("null", ""):
+        return "Unknown"
+    try:
+        items = json.loads(raw)
+        if isinstance(items, list):
+            names = [i.get("value", i.get("id", "")) for i in items if isinstance(i, dict)]
+            return ", ".join(filter(None, names)) or "Unknown"
+    except (json.JSONDecodeError, TypeError):
+        pass
+    return raw or "Unknown"
+
+
+def _parse_funding_csv(funding_rounds_raw: str) -> tuple[str, str, float]:
+    """
+    Parse the `funding_rounds` column from the Crunchbase CSV to extract
+    last_funding_type, last_funding_at, and total_funding_usd.
+
+    The column contains JSON like:
+    [{"announced_on": "2022-03-22", "id": "...", "money_raised": {"value": 500000, ...}, ...}]
+
+    Returns (last_funding_type, last_funding_at, total_funding_usd).
+    """
+    if not funding_rounds_raw or funding_rounds_raw in ("null", "", "[]"):
+        return "", "", 0.0
+    try:
+        rounds = json.loads(funding_rounds_raw)
+        if not isinstance(rounds, list) or not rounds:
+            return "", "", 0.0
+        total_usd = sum(
+            r.get("money_raised", {}).get("value_usd", 0) or 0
+            for r in rounds if isinstance(r, dict)
+        )
+        # Most recent round is assumed to be first in list
+        latest = rounds[0]
+        funding_type = latest.get("investment_type", latest.get("id", ""))
+        # Try to normalise type from id string like "snaptrade-be4e-pre-seed--..."
+        if funding_type and "series_a" in funding_type.lower():
+            funding_type = "series_a"
+        elif funding_type and "series_b" in funding_type.lower():
+            funding_type = "series_b"
+        elif funding_type and "seed" in funding_type.lower():
+            funding_type = "seed"
+        elif funding_type and "series_c" in funding_type.lower():
+            funding_type = "series_c"
+        else:
+            funding_type = funding_type.split("--")[0].rsplit("-", 1)[-1] if funding_type else ""
+        announced_on = latest.get("announced_on", "")
+        return funding_type, announced_on, float(total_usd)
+    except (json.JSONDecodeError, TypeError, AttributeError):
+        return "", "", 0.0
+
+
+def _load_crunchbase_csv() -> list[dict]:
+    """Load all rows from the Crunchbase CSV into a list of dicts."""
+    path = _crunchbase_path()
+    try:
+        with open(path, newline="", encoding="utf-8") as fh:
+            reader = csv.DictReader(fh)
+            return list(reader)
+    except FileNotFoundError:
+        return []
+
+
 def get_crunchbase_firmographics(company_name: str) -> dict[str, Any]:
     """
-    Load firmographic data from the local Crunchbase sample JSON.
+    Load firmographic data from the local Crunchbase CSV.
 
     Returns a dict with: name, industry, country, city, employee_count,
     founded_year, description, website, total_funding_usd,
     last_funding_type, last_funding_at.
     Falls back to empty defaults if the company is not found.
     """
-    path = _crunchbase_path()
-    try:
-        with open(path, "r", encoding="utf-8") as fh:
-            records: list[dict] = json.load(fh)
-    except (FileNotFoundError, json.JSONDecodeError):
-        records = []
+    records = _load_crunchbase_csv()
 
     normalised = company_name.strip().lower()
     for record in records:
         if record.get("name", "").strip().lower() == normalised:
-            founded_raw = record.get("founded_on", "")
+            founded_raw = record.get("founded_date", "")
             founded_year = None
             if founded_raw:
                 try:
-                    founded_year = int(founded_raw[:4])
+                    founded_year = int(str(founded_raw)[:4])
                 except ValueError:
                     pass
 
+            industry = _parse_industries_csv(record.get("industries", ""))
+            last_funding_type, last_funding_at, total_funding_usd = _parse_funding_csv(
+                record.get("funding_rounds_list", record.get("funding_rounds", ""))
+            )
+
+            # employee_count: CSV stores range strings like "51-200"; store as-is
+            employee_count_raw = record.get("num_employees", "0")
+            try:
+                employee_count: int | str = int(employee_count_raw)
+            except (ValueError, TypeError):
+                employee_count = employee_count_raw or 0
+
             return {
                 "name": record.get("name", company_name),
-                "industry": record.get("category_list", "Unknown"),
+                "industry": industry,
                 "country": record.get("country_code", "Unknown"),
-                "city": record.get("city", "Unknown"),
-                "employee_count": record.get("employee_count", 0),
+                "city": record.get("city", record.get("region", "Unknown")),
+                "employee_count": employee_count,
                 "founded_year": founded_year,
-                "description": record.get("short_description", ""),
-                "website": record.get("homepage_url", ""),
-                "total_funding_usd": record.get("total_funding_usd", 0),
-                "last_funding_type": record.get("last_funding_type", ""),
-                "last_funding_at": record.get("last_funding_at", ""),
-                "linkedin_url": record.get("linkedin_url", ""),
-                "cto_name": record.get("cto_name", ""),
-                "cto_tenure_days": record.get("cto_tenure_days"),
-                "open_roles_raw": record.get("open_roles", []),
-                "recent_news": record.get("recent_news", ""),
+                "description": record.get("about", record.get("short_description", "")),
+                "website": record.get("website", record.get("homepage_url", "")),
+                "total_funding_usd": total_funding_usd,
+                "last_funding_type": last_funding_type,
+                "last_funding_at": last_funding_at,
+                "linkedin_url": "",
+                "cto_name": "",
+                "cto_tenure_days": None,
+                "open_roles_raw": [],
+                "recent_news": "",
             }
 
     # Company not found — return minimal defaults
@@ -1326,6 +1402,28 @@ async def run_enrichment_pipeline(company_name: str) -> dict[str, Any]:
     competitor_gap = build_competitor_gap_brief(company_name, firmographics, ai_maturity)
     log_trace("enrichment_competitor_gap", {"company": company_name, "competitor_gap": competitor_gap})
 
+    # Step 7a: LLM gap narrative (non-blocking — enriches competitor_gap in place)
+    try:
+        from agent.core.llm_enrichment import generate_gap_narrative
+        gap_narrative_result = await generate_gap_narrative(
+            company_name=company_name,
+            competitor_gap_brief=competitor_gap,
+        )
+        competitor_gap["llm_gap_narrative"] = gap_narrative_result.get("narrative", "")
+        competitor_gap["llm_gap_narrative_model"] = gap_narrative_result.get("model", "")
+        competitor_gap["llm_gap_narrative_cost_usd"] = gap_narrative_result.get("cost_usd", 0.0)
+        log_trace("enrichment_llm_gap_narrative", {
+            "company": company_name,
+            "llm_used": gap_narrative_result.get("llm_used", False),
+            "cost_usd": gap_narrative_result.get("cost_usd", 0.0),
+        })
+    except Exception as _llm_exc:
+        # Non-fatal — pipeline continues without LLM narrative
+        log_trace("enrichment_llm_gap_narrative_error", {
+            "company": company_name,
+            "error": str(_llm_exc),
+        })
+
     # Step 8: Assemble brief
     elapsed_ms = round((time.monotonic() - start_ts) * 1000, 1)
 
@@ -1346,11 +1444,16 @@ async def run_enrichment_pipeline(company_name: str) -> dict[str, Any]:
         ),
     }
 
-    # Step 9: Persist brief
+    # Step 9: Persist brief + competitor gap brief separately
     safe_name = company_name.lower().replace(" ", "_").replace("/", "_")
     brief_path = _briefs_dir() / f"{safe_name}_brief.json"
     with open(brief_path, "w", encoding="utf-8") as fh:
         json.dump(brief, fh, indent=2, default=str)
+
+    # Persist competitor gap brief separately for main.py to load
+    gap_brief_path = _briefs_dir() / f"{safe_name}_competitor_gap.json"
+    with open(gap_brief_path, "w", encoding="utf-8") as fh:
+        json.dump(competitor_gap, fh, indent=2, default=str)
 
     # Step 10: Log latency
     log_trace(
